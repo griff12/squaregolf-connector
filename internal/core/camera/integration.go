@@ -20,13 +20,13 @@ var (
 
 // Manager handles communication with the swing camera via HTTP REST API
 type Manager struct {
-	stateManager        *core.StateManager
-	baseURL             string
-	enabled             bool
-	httpClient          *http.Client
-	pendingFilename     string              // Stores filename from shot-detected to update with club metrics later
-	pendingClubMetrics  *core.ClubMetrics   // Buffers club metrics that arrive before shot-detected response
-	mu                  sync.Mutex
+	stateManager       *core.StateManager
+	baseURL            string
+	enabled            bool
+	httpClient         *http.Client
+	pendingFilename    string            // Stores filename from shot-detected to update with club metrics later
+	pendingClubMetrics *core.ClubMetrics // Buffers club metrics that arrive before shot-detected response
+	mu                 sync.Mutex
 }
 
 // GetInstance returns the singleton instance of CameraManager
@@ -54,6 +54,20 @@ func GetInstance(stateManager *core.StateManager, baseURL string, enabled bool) 
 		}
 	})
 	return cameraInstance
+}
+
+// recordSuccess marks the most recent camera call as healthy.
+func (m *Manager) recordSuccess() {
+	m.stateManager.SetCameraError(nil)
+	m.stateManager.SetCameraStatus(core.CameraStatusOK)
+}
+
+// recordError surfaces a camera failure into application state instead of
+// swallowing it, so the UI can show the integration is unhealthy.
+func (m *Manager) recordError(err error) {
+	log.Printf("Camera error: %v", err)
+	m.stateManager.SetCameraError(err)
+	m.stateManager.SetCameraStatus(core.CameraStatusError)
 }
 
 // IsEnabled returns whether the camera integration is enabled
@@ -125,17 +139,18 @@ func (m *Manager) Arm() error {
 	url := fmt.Sprintf("%s/api/lm/arm", baseURL)
 	resp, err := m.httpClient.Post(url, "application/json", nil)
 	if err != nil {
-		log.Printf("Failed to arm camera: %v", err)
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("arm request failed: %w", err))
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Camera arm request failed: %d - %s", resp.StatusCode, string(body))
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("arm request returned %d: %s", resp.StatusCode, string(body)))
+		return nil
 	}
 
+	m.recordSuccess()
 	log.Println("Camera arm command sent successfully")
 	return nil
 }
@@ -166,16 +181,18 @@ func (m *Manager) ShotDetected(ballMetrics *core.BallMetrics) error {
 	url := fmt.Sprintf("%s/api/lm/shot-detected", baseURL)
 	resp, err := m.httpClient.Post(url, "application/json", bytes.NewBuffer(payloadBytes))
 	if err != nil {
-		log.Printf("Failed to send shot-detected to camera: %v", err)
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("shot-detected request failed: %w", err))
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Camera shot-detected request failed: %d - %s", resp.StatusCode, string(body))
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("shot-detected request returned %d: %s", resp.StatusCode, string(body)))
+		return nil
 	}
+
+	m.recordSuccess()
 
 	// Parse response to get filename for potential club metrics update later
 	var shotResponse ShotResponse
@@ -197,7 +214,7 @@ func (m *Manager) ShotDetected(ballMetrics *core.BallMetrics) error {
 		// If club metrics arrived before the filename (race condition), send them now
 		if bufferedClubMetrics != nil {
 			log.Printf("Applying buffered club metrics to %s", shotResponse.Filename)
-			go m.UpdateMetadata(shotResponse.Filename, bufferedClubMetrics)
+			safeGo("update-metadata", func() { m.UpdateMetadata(shotResponse.Filename, bufferedClubMetrics) })
 		}
 	}
 
@@ -225,17 +242,18 @@ func (m *Manager) Cancel() error {
 	url := fmt.Sprintf("%s/api/lm/cancel", baseURL)
 	resp, err := m.httpClient.Post(url, "application/json", nil)
 	if err != nil {
-		log.Printf("Failed to cancel camera: %v", err)
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("cancel request failed: %w", err))
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Camera cancel request failed: %d - %s", resp.StatusCode, string(body))
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("cancel request returned %d: %s", resp.StatusCode, string(body)))
+		return nil
 	}
 
+	m.recordSuccess()
 	log.Println("Camera cancel command sent successfully")
 	return nil
 }
@@ -292,17 +310,18 @@ func (m *Manager) UpdateMetadata(filename string, clubMetrics *core.ClubMetrics)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		log.Printf("Failed to send metadata update to camera: %v", err)
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("metadata update request failed: %w", err))
+		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Camera metadata update request failed: %d - %s", resp.StatusCode, string(body))
-		return nil // Silent failure
+		m.recordError(fmt.Errorf("metadata update returned %d: %s", resp.StatusCode, string(body)))
+		return nil
 	}
 
+	m.recordSuccess()
 	log.Printf("Camera metadata updated successfully for %s with club data", filename)
 	return nil
 }

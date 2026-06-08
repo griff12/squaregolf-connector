@@ -33,6 +33,15 @@ const (
 	InfiniteTeesStatusError        InfiniteTeesConnectionStatus = "error"
 )
 
+// CameraConnectionStatus represents the most recent outcome of camera HTTP calls
+type CameraConnectionStatus string
+
+const (
+	CameraStatusUnknown CameraConnectionStatus = "unknown"
+	CameraStatusOK      CameraConnectionStatus = "ok"
+	CameraStatusError   CameraConnectionStatus = "error"
+)
+
 // MockMode represents the type of mock implementation to use
 type MockMode string
 

@@ -99,6 +99,8 @@ type InfiniteTeesStatus struct {
 type CameraConfig struct {
 	URL     string `json:"url"`
 	Enabled bool   `json:"enabled"`
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
 }
 
 type AppSettings struct {
@@ -270,6 +272,10 @@ func (s *Server) setupCallbacks() {
 	})
 
 	s.stateManager.RegisterCameraEnabledCallback(func(oldValue, newValue bool) {
+		s.broadcastCameraConfig()
+	})
+
+	s.stateManager.RegisterCameraStatusCallback(func(oldValue, newValue core.CameraConnectionStatus) {
 		s.broadcastCameraConfig()
 	})
 
@@ -944,9 +950,16 @@ func (s *Server) getCameraConfig() CameraConfig {
 
 	enabled := s.stateManager.GetCameraEnabled()
 
+	errStr := ""
+	if cameraErr := s.stateManager.GetCameraError(); cameraErr != nil {
+		errStr = cameraErr.Error()
+	}
+
 	return CameraConfig{
 		URL:     url,
 		Enabled: enabled,
+		Status:  string(s.stateManager.GetCameraStatus()),
+		Error:   errStr,
 	}
 }
 

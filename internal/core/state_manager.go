@@ -38,6 +38,8 @@ type AppState struct {
 	OmniCarryAdjustment *int
 	CameraURL           *string
 	CameraEnabled       bool
+	CameraStatus        CameraConnectionStatus
+	CameraError         error
 	IsAligning          bool    // Whether alignment mode UI is active
 	AlignmentAngle      float64 // Current aim angle in degrees (left negative, right positive)
 	IsAligned           bool    // Whether device is currently aligned (within tolerance)
@@ -98,6 +100,8 @@ type StateManager struct {
 		OmniCarryAdjustment []StateCallback[*int]
 		CameraURL           []StateCallback[*string]
 		CameraEnabled       []StateCallback[bool]
+		CameraStatus        []StateCallback[CameraConnectionStatus]
+		CameraError         []StateCallback[error]
 		IsAligning          []StateCallback[bool]
 		AlignmentAngle      []StateCallback[float64]
 		IsAligned           []StateCallback[bool]
@@ -140,6 +144,7 @@ func (sm *StateManager) initialize() {
 		InfiniteTeesStatus:  InfiniteTeesStatusDisconnected,
 		CameraURL:           &defaultCameraURL,
 		CameraEnabled:       false,
+		CameraStatus:        CameraStatusUnknown,
 		IsAligning:          false,
 		AlignmentAngle:      0.0,
 		IsAligned:           false,
@@ -723,6 +728,54 @@ func (sm *StateManager) RegisterCameraEnabledCallback(callback StateCallback[boo
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.callbacks.CameraEnabled = append(sm.callbacks.CameraEnabled, callback)
+}
+
+// GetCameraStatus returns the most recent camera call outcome
+func (sm *StateManager) GetCameraStatus() CameraConnectionStatus {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.state.CameraStatus
+}
+
+// SetCameraStatus sets the most recent camera call outcome
+func (sm *StateManager) SetCameraStatus(value CameraConnectionStatus) {
+	sm.mu.Lock()
+	oldValue := sm.state.CameraStatus
+	sm.state.CameraStatus = value
+	callbacks := sm.callbacks.CameraStatus
+	sm.mu.Unlock()
+
+	notifyCallbacks(callbacks, oldValue, value)
+}
+
+func (sm *StateManager) RegisterCameraStatusCallback(callback StateCallback[CameraConnectionStatus]) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.callbacks.CameraStatus = append(sm.callbacks.CameraStatus, callback)
+}
+
+// GetCameraError returns the last camera error, or nil
+func (sm *StateManager) GetCameraError() error {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.state.CameraError
+}
+
+// SetCameraError records the last camera error
+func (sm *StateManager) SetCameraError(value error) {
+	sm.mu.Lock()
+	oldValue := sm.state.CameraError
+	sm.state.CameraError = value
+	callbacks := sm.callbacks.CameraError
+	sm.mu.Unlock()
+
+	notifyCallbacks(callbacks, oldValue, value)
+}
+
+func (sm *StateManager) RegisterCameraErrorCallback(callback StateCallback[error]) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.callbacks.CameraError = append(sm.callbacks.CameraError, callback)
 }
 
 // GetIsAligning returns whether alignment mode is active

@@ -90,6 +90,7 @@ type TinyGoBluetoothClient struct {
 	connectedDeviceName  string // Store the name of the connected device
 	connectedScanResult  *bluetooth.ScanResult
 	onPhaseChange        func(ConnectionPhase)
+	onConnectionLost     func()
 
 	// New fields for scan management
 	scanning    bool
@@ -106,13 +107,54 @@ func NewTinyGoBluetoothClient() (*TinyGoBluetoothClient, error) {
 		return nil, fmt.Errorf("failed to initialize Bluetooth adapter: %w", err)
 	}
 
-	return &TinyGoBluetoothClient{
+	client := &TinyGoBluetoothClient{
 		adapter:              adapter,
 		connected:            false,
 		characteristics:      make(map[string]*bluetooth.DeviceCharacteristic),
 		notificationHandlers: make(map[string]func([]byte)),
 		scanResults:          make(map[string]bluetooth.ScanResult),
-	}, nil
+	}
+
+	// Surface unsolicited disconnects (device powered off, out of range) which
+	// otherwise leave the app believing it is still connected.
+	adapter.SetConnectHandler(client.handleAdapterConnectEvent)
+
+	return client, nil
+}
+
+// handleAdapterConnectEvent is invoked by the BLE stack on connect/disconnect.
+// We only care about losses while we believed we were connected; intentional
+// disconnects have already cleared t.connected under the mutex, so they are
+// naturally suppressed and won't fire onConnectionLost twice.
+func (t *TinyGoBluetoothClient) handleAdapterConnectEvent(device bluetooth.Device, connected bool) {
+	if connected {
+		return
+	}
+
+	t.mutex.Lock()
+	wasConnected := t.connected
+	if wasConnected {
+		t.connected = false
+	}
+	cb := t.onConnectionLost
+	t.mutex.Unlock()
+
+	if !wasConnected {
+		return
+	}
+
+	log.Println("TinyGoBluetoothClient: device disconnected unexpectedly")
+	if cb != nil {
+		cb()
+	}
+}
+
+// SetConnectionLostCallback sets a callback invoked when the device drops the
+// connection without an explicit Disconnect() call.
+func (t *TinyGoBluetoothClient) SetConnectionLostCallback(callback func()) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	t.onConnectionLost = callback
 }
 
 // SetPhaseChangeCallback sets a callback to be notified of connection phase changes

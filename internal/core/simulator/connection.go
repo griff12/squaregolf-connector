@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/brentyates/squaregolf-connector/internal/resilience"
 )
 
 const (
@@ -29,7 +31,7 @@ type Base struct {
 	Wg                 sync.WaitGroup
 	ReconnectAttempts  int
 	LastConnectAttempt time.Time
-	BackoffDuration    time.Duration
+	backoff            *resilience.Backoff
 }
 
 func NewBase(protocol Protocol, host string, port int) *Base {
@@ -40,11 +42,11 @@ func NewBase(protocol Protocol, host string, port int) *Base {
 		port = protocol.DefaultPort()
 	}
 	return &Base{
-		Protocol:        protocol,
-		Host:            host,
-		Port:            port,
-		AutoReconnect:   true,
-		BackoffDuration: InitialBackoff,
+		Protocol:      protocol,
+		Host:          host,
+		Port:          port,
+		AutoReconnect: true,
+		backoff:       resilience.NewBackoff(InitialBackoff, MaxBackoff),
 	}
 }
 
@@ -69,7 +71,7 @@ func (b *Base) Connect(host string, port int) {
 	b.LastConnectAttempt = time.Now()
 
 	addr := net.JoinHostPort(b.Host, fmt.Sprintf("%d", b.Port))
-	log.Printf("[%s] Connecting to server at %s (attempt %d, backoff: %v)", b.Protocol.Name(), addr, b.ReconnectAttempts+1, b.BackoffDuration)
+	log.Printf("[%s] Connecting to server at %s (attempt %d, backoff: %v)", b.Protocol.Name(), addr, b.ReconnectAttempts+1, b.backoff.Current())
 
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
@@ -78,10 +80,7 @@ func (b *Base) Connect(host string, port int) {
 		b.Protocol.SetError(fmt.Errorf("failed to connect: %v", err))
 		b.Protocol.SetStatus(StatusError)
 
-		b.BackoffDuration *= 2
-		if b.BackoffDuration > MaxBackoff {
-			b.BackoffDuration = MaxBackoff
-		}
+		b.backoff.Next()
 		return
 	}
 
@@ -94,7 +93,7 @@ func (b *Base) Connect(host string, port int) {
 	b.Socket = conn
 	b.Connected = true
 	b.ReconnectAttempts = 0
-	b.BackoffDuration = InitialBackoff
+	b.backoff.Reset()
 
 	log.Printf("[%s] Successfully connected to server at %s", b.Protocol.Name(), addr)
 
@@ -185,7 +184,7 @@ func (b *Base) EnableAutoReconnect() {
 	defer b.ConnectMutex.Unlock()
 	b.AutoReconnect = true
 	b.ReconnectAttempts = 0
-	b.BackoffDuration = InitialBackoff
+	b.backoff.Reset()
 	log.Printf("[%s] Auto-reconnect enabled", b.Protocol.Name())
 }
 
@@ -200,7 +199,7 @@ func (b *Base) ResetReconnectionState() {
 	b.ConnectMutex.Lock()
 	defer b.ConnectMutex.Unlock()
 	b.ReconnectAttempts = 0
-	b.BackoffDuration = InitialBackoff
+	b.backoff.Reset()
 	b.LastConnectAttempt = time.Time{}
 	log.Printf("[%s] Reconnection state reset", b.Protocol.Name())
 }
@@ -324,7 +323,7 @@ func (b *Base) connectionThread() {
 		connected := b.Connected
 		autoReconnect := b.AutoReconnect
 		reconnectAttempts := b.ReconnectAttempts
-		backoff := b.BackoffDuration
+		backoff := b.backoff.Current()
 		lastAttempt := b.LastConnectAttempt
 		b.ConnectMutex.Unlock()
 
