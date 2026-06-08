@@ -48,6 +48,22 @@ func InfiniteTees() Config {
 	}
 }
 
+// OpenAPI returns a generic config for any system speaking the GSPro Connect
+// API (GSPro, InfiniteTees, and compatible sims). It accepts every known
+// message alias and arms on connect, so a single connection reaches all of them;
+// the user just points it at the right host:port. The "gspro" name keeps the
+// existing status/settings/route plumbing while the UI presents it as "Open API".
+func OpenAPI() Config {
+	return Config{
+		Name:               "gspro",
+		DisplayName:        "Open API",
+		DefaultPortValue:   921,
+		ReadyMessages:      []string{"GSPro ready", "IT ready"},
+		PlayerInfoMessages: []string{"GSPro Player Information", "IT Player Information"},
+		ActivateOnConnect:  true,
+	}
+}
+
 // Integration is the GSPro Connect API sim plugin. One implementation serves
 // every compatible system, differing only by Config. It depends on the plugin
 // host contract, the pure protocol types, and the core-free simulator transport.

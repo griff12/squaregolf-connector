@@ -48,8 +48,7 @@ func main() {
 	launchMonitor.SetupNotifications(bluetoothManager)
 
 	registry := plugin.NewRegistry(core.NewPluginHost(stateManager, launchMonitor))
-	registry.Register(connectapi.New(connectapi.GSPro(), settings.GSProIP, settings.GSProPort))
-	registry.Register(connectapi.New(connectapi.InfiniteTees(), settings.InfiniteTeesIP, settings.InfiniteTeesPort))
+	registry.Register(connectapi.New(connectapi.OpenAPI(), settings.GSProIP, settings.GSProPort))
 	registry.StartAll(context.Background())
 
 	server := web.NewServer(

@@ -2,8 +2,7 @@
 export class ScreenManager {
     #pageTitles = {
         device: 'Device',
-        gspro: 'GSPro',
-        infiniteTees: 'Infinite Tees',
+        gspro: 'Open API',
         settings: 'Settings'
     };
 

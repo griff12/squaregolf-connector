@@ -3,7 +3,6 @@ import { EventBus } from './EventBus.js';
 import { WebSocketService } from '../services/WebSocketService.js';
 import { DeviceService } from '../services/DeviceService.js';
 import { GSProService } from '../services/GSProService.js';
-import { InfiniteTeesService } from '../services/InfiniteTeesService.js';
 import { ApiClient } from '../services/ApiClient.js';
 import { AlignmentManager } from '../features/AlignmentManager.js';
 import { SettingsManager } from '../features/SettingsManager.js';
@@ -26,7 +25,6 @@ export class SquareGolfApp {
         this.ws = new WebSocketService(this.eventBus);
         this.deviceService = new DeviceService(this.api, this.eventBus);
         this.gsproService = new GSProService(this.api, this.eventBus);
-        this.infiniteTeesService = new InfiniteTeesService(this.api, this.eventBus);
 
         // Features
         this.alignmentManager = new AlignmentManager(this.api, this.eventBus);
@@ -88,25 +86,15 @@ export class SquareGolfApp {
         this.eventBus.on('device:error', (msg) => this.toast.error(`Connection failed: ${msg}`));
         this.eventBus.on('device:status', (status) => this.updateDeviceStatus(status));
 
-        // GSPro events
+        // Open API (GSPro Connect protocol) events
         this.eventBus.on('gspro:connecting', () => {
-            this.toast.info('GSPro connection initiated...');
+            this.toast.info('Open API connection initiated...');
         });
         this.eventBus.on('gspro:disconnecting', () => {
-            this.toast.info('GSPro disconnection initiated...');
+            this.toast.info('Open API disconnection initiated...');
         });
-        this.eventBus.on('gspro:error', (msg) => this.toast.error(`GSPro: ${msg}`));
+        this.eventBus.on('gspro:error', (msg) => this.toast.error(`Open API: ${msg}`));
         this.eventBus.on('gspro:status', (status) => this.updateGSProStatus(status));
-
-        // Infinite Tees events
-        this.eventBus.on('infinitetees:connecting', () => {
-            this.toast.info('Infinite Tees connection initiated...');
-        });
-        this.eventBus.on('infinitetees:disconnecting', () => {
-            this.toast.info('Infinite Tees disconnection initiated...');
-        });
-        this.eventBus.on('infinitetees:error', (msg) => this.toast.error(`Infinite Tees: ${msg}`));
-        this.eventBus.on('infinitetees:status', (status) => this.updateInfiniteTeesStatus(status));
 
         // Alignment events
         this.eventBus.on('alignment:saved', () => {
@@ -172,7 +160,6 @@ export class SquareGolfApp {
         // Status bar navigation
         this.bind('statusDevice', 'click', () => this.screen.show('device'));
         this.bind('statusGSPro', 'click', () => this.screen.show('gspro'));
-        this.bind('statusInfiniteTees', 'click', () => this.screen.show('infiniteTees'));
         this.bind('statusBallReady', 'click', () => this.screen.show('device'));
 
         // Alignment panel controls
@@ -191,7 +178,7 @@ export class SquareGolfApp {
             }
         });
 
-        // GSPro controls
+        // Open API controls (GSPro Connect protocol)
         this.bind('gsproConnectBtn', 'click', () => {
             const config = this.getConnectionConfig('gspro', true);
             if (!config) return;
@@ -202,30 +189,22 @@ export class SquareGolfApp {
             this.gsproService.disconnect();
         });
 
-        // GSPro settings
+        // Open API settings
         this.bind('gsproIP', 'change', () => this.saveGSProConfig());
         this.bind('gsproPort', 'change', () => this.saveGSProConfig());
         this.bind('gsproAutoConnect', 'change', () => this.saveGSProConfig());
         this.bind('gsproIP', 'input', () => this.clearFieldError('gsproIP'));
         this.bind('gsproPort', 'input', () => this.clearFieldError('gsproPort'));
 
-        // Infinite Tees controls
-        this.bind('infiniteTeesConnectBtn', 'click', () => {
-            const config = this.getConnectionConfig('infiniteTees', true);
-            if (!config) return;
-            const { ip, port } = config;
-            this.infiniteTeesService.connect(ip, port);
+        // Open API preset: fills the standard port, then persists
+        this.bind('openApiPreset', 'change', () => {
+            const preset = this.$('openApiPreset')?.value;
+            const portField = this.$('gsproPort');
+            if (portField && preset && preset !== 'custom') {
+                portField.value = preset;
+            }
+            this.saveGSProConfig();
         });
-        this.bind('infiniteTeesDisconnectBtn', 'click', () => {
-            this.infiniteTeesService.disconnect();
-        });
-
-        // Infinite Tees settings
-        this.bind('infiniteTeesIP', 'change', () => this.saveInfiniteTeesConfig());
-        this.bind('infiniteTeesPort', 'change', () => this.saveInfiniteTeesConfig());
-        this.bind('infiniteTeesAutoConnect', 'change', () => this.saveInfiniteTeesConfig());
-        this.bind('infiniteTeesIP', 'input', () => this.clearFieldError('infiniteTeesIP'));
-        this.bind('infiniteTeesPort', 'input', () => this.clearFieldError('infiniteTeesPort'));
 
         // Camera controls
         this.bind('cameraSaveBtn', 'click', () => this.cameraManager.save());
@@ -270,9 +249,6 @@ export class SquareGolfApp {
                 break;
             case 'gsproStatus':
                 this.gsproService.updateStatus(message.data);
-                break;
-            case 'infiniteTeesStatus':
-                this.infiniteTeesService.updateStatus(message.data);
                 break;
             case 'cameraConfig':
                 this.cameraManager.updateConfig(message.data);
@@ -824,29 +800,6 @@ export class SquareGolfApp {
         await this.gsproService.saveConfig(ip, port, autoConnect);
     }
 
-    updateInfiniteTeesStatus(status) {
-        this.updateGlobalConnectionIndicator('statusInfiniteTees', status.connectionStatus);
-        this.updateConnectionPanel({
-            status,
-            statusElementId: 'infiniteTeesStatus',
-            errorElementId: 'infiniteTeesError',
-            connectBtnId: 'infiniteTeesConnectBtn',
-            disconnectBtnId: 'infiniteTeesDisconnectBtn',
-            ipFieldId: 'infiniteTeesIP',
-            portFieldId: 'infiniteTeesPort'
-        });
-    }
-
-    async saveInfiniteTeesConfig() {
-        const config = this.getConnectionConfig('infiniteTees', false);
-        if (!config) return;
-
-        const { ip, port } = config;
-        const autoConnect = this.$('infiniteTeesAutoConnect')?.checked;
-
-        await this.infiniteTeesService.saveConfig(ip, port, autoConnect);
-    }
-
     getConnectionConfig(prefix, notifyOnError) {
         const ipField = this.$(`${prefix}IP`);
         const portField = this.$(`${prefix}Port`);
@@ -1006,12 +959,12 @@ export class SquareGolfApp {
         if (gsproPort) gsproPort.value = settings.gsproPort || 921;
         if (gsproAutoConnect) gsproAutoConnect.checked = settings.gsproAutoConnect || false;
 
-        const itIP = this.$('infiniteTeesIP');
-        const itPort = this.$('infiniteTeesPort');
-        const itAutoConnect = this.$('infiniteTeesAutoConnect');
-        if (itIP) itIP.value = settings.infiniteTeesIP || '127.0.0.1';
-        if (itPort) itPort.value = settings.infiniteTeesPort || 999;
-        if (itAutoConnect) itAutoConnect.checked = settings.infiniteTeesAutoConnect || false;
+        // Sync the Open API preset dropdown to the loaded port (known port -> preset, else custom)
+        const openApiPreset = this.$('openApiPreset');
+        if (openApiPreset) {
+            const port = String(settings.gsproPort || 921);
+            openApiPreset.value = (port === '921' || port === '999') ? port : 'custom';
+        }
 
         const omniSpeedUnit = this.$('omniSpeedUnit');
         const omniDistanceUnit = this.$('omniDistanceUnit');

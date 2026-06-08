@@ -192,7 +192,7 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 		log.Println("Starting GSPro integration")
 		host := core.NewPluginHost(stateManager, launchMonitor)
 		registry := plugin.NewRegistry(host)
-		registry.Register(connectapi.New(connectapi.GSPro(), config.GSProIP, config.GSProPort))
+		registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
 		registry.StartAll(context.Background())
 		if c, ok := registry.Connectable("gspro"); ok {
 			go c.BeginConnect(config.GSProIP, config.GSProPort)
@@ -229,8 +229,7 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 	// registry line.
 	host := core.NewPluginHost(stateManager, launchMonitor)
 	registry := plugin.NewRegistry(host)
-	registry.Register(connectapi.New(connectapi.GSPro(), config.GSProIP, config.GSProPort))
-	registry.Register(connectapi.New(connectapi.InfiniteTees(), config.InfiniteTeesIP, config.InfiniteTeesPort))
+	registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
 	if config.EnableExternalCamera {
 		registry.Register(camera.New(camera.NewSwingCamVendor(settings.CameraURL), settings.CameraURL, settings.CameraEnabled))
 	}
@@ -247,16 +246,9 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 			gsproIP = settings.GSProIP
 			gsproPort = settings.GSProPort
 		}
-		log.Printf("Auto-connecting to GSPro at %s:%d", gsproIP, gsproPort)
+		log.Printf("Auto-connecting to Open API endpoint at %s:%d", gsproIP, gsproPort)
 		if c, ok := registry.Connectable("gspro"); ok {
 			go c.BeginConnect(gsproIP, gsproPort)
-		}
-	}
-
-	if settings.InfiniteTeesAutoConnect {
-		log.Printf("Auto-connecting to Infinite Tees at %s:%d", settings.InfiniteTeesIP, settings.InfiniteTeesPort)
-		if c, ok := registry.Connectable("infinitetees"); ok {
-			go c.BeginConnect(settings.InfiniteTeesIP, settings.InfiniteTeesPort)
 		}
 	}
 
