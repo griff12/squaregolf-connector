@@ -27,19 +27,11 @@ type AppState struct {
 	Club                *ClubType
 	ClubName            *string // Human-readable club name from GSPro (e.g., "Driver", "7-iron")
 	Handedness          *HandednessType
-	GSProStatus         GSProConnectionStatus
-	GSProError          error
-	InfiniteTeesStatus  InfiniteTeesConnectionStatus
-	InfiniteTeesError   error
 	SpinMode            *SpinMode
 	OmniSpeedUnit       *string
 	OmniDistanceUnit    *string
 	OmniGreenSpeed      *int
 	OmniCarryAdjustment *int
-	CameraURL           *string
-	CameraEnabled       bool
-	CameraStatus        CameraConnectionStatus
-	CameraError         error
 	IsAligning          bool    // Whether alignment mode UI is active
 	AlignmentAngle      float64 // Current aim angle in degrees (left negative, right positive)
 	IsAligned           bool    // Whether device is currently aligned (within tolerance)
@@ -89,19 +81,11 @@ type StateManager struct {
 		LastError           []StateCallback[error]
 		Club                []StateCallback[*ClubType]
 		Handedness          []StateCallback[*HandednessType]
-		GSProStatus         []StateCallback[GSProConnectionStatus]
-		GSProError          []StateCallback[error]
-		InfiniteTeesStatus  []StateCallback[InfiniteTeesConnectionStatus]
-		InfiniteTeesError   []StateCallback[error]
 		SpinMode            []StateCallback[*SpinMode]
 		OmniSpeedUnit       []StateCallback[*string]
 		OmniDistanceUnit    []StateCallback[*string]
 		OmniGreenSpeed      []StateCallback[*int]
 		OmniCarryAdjustment []StateCallback[*int]
-		CameraURL           []StateCallback[*string]
-		CameraEnabled       []StateCallback[bool]
-		CameraStatus        []StateCallback[CameraConnectionStatus]
-		CameraError         []StateCallback[error]
 		IsAligning          []StateCallback[bool]
 		AlignmentAngle      []StateCallback[float64]
 		IsAligned           []StateCallback[bool]
@@ -137,16 +121,10 @@ func GetInstance() *StateManager {
 
 // initialize sets up the default state values
 func (sm *StateManager) initialize() {
-	defaultCameraURL := "http://localhost:5000"
 	sm.state = AppState{
 		ConnectionStatus:    ConnectionStatusDisconnected,
 		BallDetected:        false,
 		BallReady:           false,
-		GSProStatus:         GSProStatusDisconnected,
-		InfiniteTeesStatus:  InfiniteTeesStatusDisconnected,
-		CameraURL:           &defaultCameraURL,
-		CameraEnabled:       false,
-		CameraStatus:        CameraStatusUnknown,
 		IsAligning:          false,
 		AlignmentAngle:      0.0,
 		IsAligned:           false,
@@ -469,106 +447,6 @@ func (sm *StateManager) RegisterHandednessCallback(callback StateCallback[*Hande
 	sm.callbacks.Handedness = append(sm.callbacks.Handedness, callback)
 }
 
-// GetGSProStatus returns the GSPro connection status
-func (sm *StateManager) GetGSProStatus() GSProConnectionStatus {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.GSProStatus
-}
-
-// SetGSProStatus sets the GSPro connection status
-func (sm *StateManager) SetGSProStatus(value GSProConnectionStatus) {
-	sm.mu.Lock()
-	oldValue := sm.state.GSProStatus
-	sm.state.GSProStatus = value
-	callbacks := sm.callbacks.GSProStatus
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// GetGSProError returns the GSPro error
-func (sm *StateManager) GetGSProError() error {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.GSProError
-}
-
-// SetGSProError sets the GSPro error
-func (sm *StateManager) SetGSProError(value error) {
-	sm.mu.Lock()
-	oldValue := sm.state.GSProError
-	sm.state.GSProError = value
-	callbacks := sm.callbacks.GSProError
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// RegisterGSProStatusCallback registers a callback for GSPro status changes
-func (sm *StateManager) RegisterGSProStatusCallback(callback StateCallback[GSProConnectionStatus]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.GSProStatus = append(sm.callbacks.GSProStatus, callback)
-}
-
-// RegisterGSProErrorCallback registers a callback for GSPro error changes
-func (sm *StateManager) RegisterGSProErrorCallback(callback StateCallback[error]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.GSProError = append(sm.callbacks.GSProError, callback)
-}
-
-// GetInfiniteTeesStatus returns the Infinite Tees connection status
-func (sm *StateManager) GetInfiniteTeesStatus() InfiniteTeesConnectionStatus {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.InfiniteTeesStatus
-}
-
-// SetInfiniteTeesStatus sets the Infinite Tees connection status
-func (sm *StateManager) SetInfiniteTeesStatus(value InfiniteTeesConnectionStatus) {
-	sm.mu.Lock()
-	oldValue := sm.state.InfiniteTeesStatus
-	sm.state.InfiniteTeesStatus = value
-	callbacks := sm.callbacks.InfiniteTeesStatus
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// GetInfiniteTeesError returns the Infinite Tees error
-func (sm *StateManager) GetInfiniteTeesError() error {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.InfiniteTeesError
-}
-
-// SetInfiniteTeesError sets the Infinite Tees error
-func (sm *StateManager) SetInfiniteTeesError(value error) {
-	sm.mu.Lock()
-	oldValue := sm.state.InfiniteTeesError
-	sm.state.InfiniteTeesError = value
-	callbacks := sm.callbacks.InfiniteTeesError
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// RegisterInfiniteTeesStatusCallback registers a callback for Infinite Tees status changes
-func (sm *StateManager) RegisterInfiniteTeesStatusCallback(callback StateCallback[InfiniteTeesConnectionStatus]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.InfiniteTeesStatus = append(sm.callbacks.InfiniteTeesStatus, callback)
-}
-
-// RegisterInfiniteTeesErrorCallback registers a callback for Infinite Tees error changes
-func (sm *StateManager) RegisterInfiniteTeesErrorCallback(callback StateCallback[error]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.InfiniteTeesError = append(sm.callbacks.InfiniteTeesError, callback)
-}
-
 // GetSpinMode returns the current spin mode
 func (sm *StateManager) GetSpinMode() *SpinMode {
 	sm.mu.RLock()
@@ -680,104 +558,6 @@ func (sm *StateManager) RegisterOmniCarryAdjustmentCallback(callback StateCallba
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.callbacks.OmniCarryAdjustment = append(sm.callbacks.OmniCarryAdjustment, callback)
-}
-
-// GetCameraURL returns the camera URL
-func (sm *StateManager) GetCameraURL() *string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraURL
-}
-
-// SetCameraURL sets the camera URL
-func (sm *StateManager) SetCameraURL(value *string) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraURL
-	sm.state.CameraURL = value
-	callbacks := sm.callbacks.CameraURL
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// GetCameraEnabled returns whether camera integration is enabled
-func (sm *StateManager) GetCameraEnabled() bool {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraEnabled
-}
-
-// SetCameraEnabled sets whether camera integration is enabled
-func (sm *StateManager) SetCameraEnabled(value bool) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraEnabled
-	sm.state.CameraEnabled = value
-	callbacks := sm.callbacks.CameraEnabled
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-// RegisterCameraURLCallback registers a callback for camera URL changes
-func (sm *StateManager) RegisterCameraURLCallback(callback StateCallback[*string]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraURL = append(sm.callbacks.CameraURL, callback)
-}
-
-// RegisterCameraEnabledCallback registers a callback for camera enabled changes
-func (sm *StateManager) RegisterCameraEnabledCallback(callback StateCallback[bool]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraEnabled = append(sm.callbacks.CameraEnabled, callback)
-}
-
-// GetCameraStatus returns the most recent camera call outcome
-func (sm *StateManager) GetCameraStatus() CameraConnectionStatus {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraStatus
-}
-
-// SetCameraStatus sets the most recent camera call outcome
-func (sm *StateManager) SetCameraStatus(value CameraConnectionStatus) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraStatus
-	sm.state.CameraStatus = value
-	callbacks := sm.callbacks.CameraStatus
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-func (sm *StateManager) RegisterCameraStatusCallback(callback StateCallback[CameraConnectionStatus]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraStatus = append(sm.callbacks.CameraStatus, callback)
-}
-
-// GetCameraError returns the last camera error, or nil
-func (sm *StateManager) GetCameraError() error {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraError
-}
-
-// SetCameraError records the last camera error
-func (sm *StateManager) SetCameraError(value error) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraError
-	sm.state.CameraError = value
-	callbacks := sm.callbacks.CameraError
-	sm.mu.Unlock()
-
-	notifyCallbacks(callbacks, oldValue, value)
-}
-
-func (sm *StateManager) RegisterCameraErrorCallback(callback StateCallback[error]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraError = append(sm.callbacks.CameraError, callback)
 }
 
 // GetIsAligning returns whether alignment mode is active

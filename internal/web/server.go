@@ -76,29 +76,6 @@ type DeviceStatus struct {
 	BatteryCharging     *int                     `json:"batteryCharging"`
 }
 
-type GSProStatus struct {
-	ConnectionStatus string `json:"connectionStatus"`
-	IP               string `json:"ip"`
-	Port             int    `json:"port"`
-	AutoConnect      bool   `json:"autoConnect"`
-	LastError        string `json:"lastError"`
-}
-
-type InfiniteTeesStatus struct {
-	ConnectionStatus string `json:"connectionStatus"`
-	IP               string `json:"ip"`
-	Port             int    `json:"port"`
-	AutoConnect      bool   `json:"autoConnect"`
-	LastError        string `json:"lastError"`
-}
-
-type CameraConfig struct {
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
-	Status  string `json:"status"`
-	Error   string `json:"error,omitempty"`
-}
-
 type AppSettings struct {
 	DeviceName              string `json:"deviceName"`
 	SpinMode                string `json:"spinMode"`
@@ -253,29 +230,9 @@ func (s *Server) setupCallbacks() {
 		s.broadcastDeviceStatus()
 	})
 
-	s.stateManager.RegisterGSProStatusCallback(func(oldValue, newValue core.GSProConnectionStatus) {
-		s.broadcastGSProStatus()
-	})
-
-	s.stateManager.RegisterInfiniteTeesStatusCallback(func(oldValue, newValue core.InfiniteTeesConnectionStatus) {
-		s.broadcastInfiniteTeesStatus()
-	})
-
 	// Generic, registry-driven integration status (drives the data-driven UI)
 	s.stateManager.RegisterIntegrationStatusCallback(func(name string, status core.IntegrationStatus) {
 		s.broadcastIntegration(name)
-	})
-
-	s.stateManager.RegisterCameraURLCallback(func(oldValue, newValue *string) {
-		s.broadcastCameraConfig()
-	})
-
-	s.stateManager.RegisterCameraEnabledCallback(func(oldValue, newValue bool) {
-		s.broadcastCameraConfig()
-	})
-
-	s.stateManager.RegisterCameraStatusCallback(func(oldValue, newValue core.CameraConnectionStatus) {
-		s.broadcastCameraConfig()
 	})
 
 	s.stateManager.RegisterIsAligningCallback(func(oldValue, newValue bool) {
@@ -334,26 +291,6 @@ func (s *Server) broadcastDeviceStatus() {
 	}
 }
 
-func (s *Server) broadcastGSProStatus() {
-	status := s.getGSProStatus()
-	msg := WSMessage{Type: "gsproStatus", Data: status}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
-	}
-}
-
-func (s *Server) broadcastInfiniteTeesStatus() {
-	status := s.getInfiniteTeesStatus()
-	msg := WSMessage{Type: "infiniteTeesStatus", Data: status}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
-	}
-}
-
 func (s *Server) getDeviceStatus() DeviceStatus {
 	var lastErrorStr string
 	if err := s.stateManager.GetLastError(); err != nil {
@@ -401,63 +338,6 @@ func (s *Server) getDeviceStatus() DeviceStatus {
 	}
 }
 
-func (s *Server) getGSProStatus() GSProStatus {
-	var lastErrorStr string
-	if err := s.stateManager.GetGSProError(); err != nil {
-		lastErrorStr = err.Error()
-	}
-
-	connectionStatus := "disconnected"
-	switch s.stateManager.GetGSProStatus() {
-	case core.GSProStatusConnected:
-		connectionStatus = "connected"
-	case core.GSProStatusConnecting:
-		connectionStatus = "connecting"
-	case core.GSProStatusError:
-		connectionStatus = "error"
-	}
-
-	// Get current GSPro settings from integration and config
-	ip, port := s.connectionInfo("gspro")
-	settings := config.GetInstance().GetSettings()
-
-	return GSProStatus{
-		ConnectionStatus: connectionStatus,
-		IP:               ip,
-		Port:             port,
-		AutoConnect:      settings.GSProAutoConnect,
-		LastError:        lastErrorStr,
-	}
-}
-
-func (s *Server) getInfiniteTeesStatus() InfiniteTeesStatus {
-	var lastErrorStr string
-	if err := s.stateManager.GetInfiniteTeesError(); err != nil {
-		lastErrorStr = err.Error()
-	}
-
-	connectionStatus := "disconnected"
-	switch s.stateManager.GetInfiniteTeesStatus() {
-	case core.InfiniteTeesStatusConnected:
-		connectionStatus = "connected"
-	case core.InfiniteTeesStatusConnecting:
-		connectionStatus = "connecting"
-	case core.InfiniteTeesStatusError:
-		connectionStatus = "error"
-	}
-
-	ip, port := s.connectionInfo("infinitetees")
-	settings := config.GetInstance().GetSettings()
-
-	return InfiniteTeesStatus{
-		ConnectionStatus: connectionStatus,
-		IP:               ip,
-		Port:             port,
-		AutoConnect:      settings.InfiniteTeesAutoConnect,
-		LastError:        lastErrorStr,
-	}
-}
-
 func (s *Server) Start(port int) error {
 	router := mux.NewRouter()
 
@@ -478,21 +358,6 @@ func (s *Server) Start(port int) error {
 	api.HandleFunc("/device/connect", s.handleDeviceConnect).Methods("POST")
 	api.HandleFunc("/device/disconnect", s.handleDeviceDisconnect).Methods("POST")
 	api.HandleFunc("/device/practice", s.handlePracticeMode).Methods("POST")
-
-	// GSPro endpoints
-	api.HandleFunc("/gspro/status", s.handleGSProStatus).Methods("GET")
-	api.HandleFunc("/gspro/connect", s.handleGSProConnect).Methods("POST")
-	api.HandleFunc("/gspro/disconnect", s.handleGSProDisconnect).Methods("POST")
-	api.HandleFunc("/gspro/config", s.handleGSProConfig).Methods("GET", "POST")
-
-	// Infinite Tees endpoints
-	api.HandleFunc("/infinitetees/status", s.handleInfiniteTeesStatus).Methods("GET")
-	api.HandleFunc("/infinitetees/connect", s.handleInfiniteTeesConnect).Methods("POST")
-	api.HandleFunc("/infinitetees/disconnect", s.handleInfiniteTeesDisconnect).Methods("POST")
-	api.HandleFunc("/infinitetees/config", s.handleInfiniteTeesConfig).Methods("GET", "POST")
-
-	// Camera endpoints
-	api.HandleFunc("/camera/config", s.handleCameraConfig).Methods("GET", "POST")
 
 	// Generic, registry-driven integration endpoints (data-driven UI)
 	api.HandleFunc("/integrations", s.handleIntegrations).Methods("GET")
@@ -615,9 +480,6 @@ func (s *Server) sendInitialStatus(client *wsClient) {
 	}
 
 	send("deviceStatus", s.getDeviceStatus())
-	send("gsproStatus", s.getGSProStatus())
-	send("infiniteTeesStatus", s.getInfiniteTeesStatus())
-	send("cameraConfig", s.getCameraConfig())
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
@@ -642,144 +504,6 @@ func (s *Server) handleDeviceConnect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeviceDisconnect(w http.ResponseWriter, r *http.Request) {
 	go s.bluetoothManager.DisconnectBluetooth()
 	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleGSProStatus(w http.ResponseWriter, r *http.Request) {
-	status := s.getGSProStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
-}
-
-// connectIntegration connects a registered Connectable plugin by name. The body
-// is identical for every integration, so all of them route here.
-func (s *Server) connectIntegration(name string, w http.ResponseWriter, r *http.Request) {
-	integration, ok := s.plugins.Connectable(name)
-	if !ok {
-		http.Error(w, "unknown integration", http.StatusNotFound)
-		return
-	}
-
-	var req struct {
-		IP   string `json:"ip"`
-		Port int    `json:"port"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	go integration.BeginConnect(req.IP, req.Port)
-	w.WriteHeader(http.StatusOK)
-}
-
-// disconnectIntegration disconnects a registered Connectable plugin by name.
-func (s *Server) disconnectIntegration(name string, w http.ResponseWriter, r *http.Request) {
-	integration, ok := s.plugins.Connectable(name)
-	if !ok {
-		http.Error(w, "unknown integration", http.StatusNotFound)
-		return
-	}
-
-	go integration.EndConnect()
-	w.WriteHeader(http.StatusOK)
-}
-
-// connectionInfo returns a Connectable plugin's current host/port, or zero values.
-func (s *Server) connectionInfo(name string) (string, int) {
-	if c, ok := s.plugins.Connectable(name); ok {
-		return c.GetConnectionInfo()
-	}
-	return "", 0
-}
-
-func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
-	s.connectIntegration("gspro", w, r)
-}
-
-func (s *Server) handleGSProDisconnect(w http.ResponseWriter, r *http.Request) {
-	s.disconnectIntegration("gspro", w, r)
-}
-
-func (s *Server) handleGSProConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		settings := config.GetInstance().GetSettings()
-		configData := struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}{
-			IP:          settings.GSProIP,
-			Port:        settings.GSProPort,
-			AutoConnect: settings.GSProAutoConnect,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(configData)
-	} else {
-		var configData struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		cfg := config.GetInstance()
-		cfg.SetGSProIP(configData.IP)
-		cfg.SetGSProPort(configData.Port)
-		cfg.SetGSProAutoConnect(configData.AutoConnect)
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (s *Server) handleInfiniteTeesStatus(w http.ResponseWriter, r *http.Request) {
-	status := s.getInfiniteTeesStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) handleInfiniteTeesConnect(w http.ResponseWriter, r *http.Request) {
-	s.connectIntegration("infinitetees", w, r)
-}
-
-func (s *Server) handleInfiniteTeesDisconnect(w http.ResponseWriter, r *http.Request) {
-	s.disconnectIntegration("infinitetees", w, r)
-}
-
-func (s *Server) handleInfiniteTeesConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		settings := config.GetInstance().GetSettings()
-		configData := struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}{
-			IP:          settings.InfiniteTeesIP,
-			Port:        settings.InfiniteTeesPort,
-			AutoConnect: settings.InfiniteTeesAutoConnect,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(configData)
-	} else {
-		var configData struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		cfg := config.GetInstance()
-		cfg.SetInfiniteTeesIP(configData.IP)
-		cfg.SetInfiniteTeesPort(configData.Port)
-		cfg.SetInfiniteTeesAutoConnect(configData.AutoConnect)
-
-		w.WriteHeader(http.StatusOK)
-	}
 }
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
@@ -948,74 +672,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (s *Server) getCameraConfig() CameraConfig {
-	url := "http://localhost:5000"
-	if cameraURL := s.stateManager.GetCameraURL(); cameraURL != nil {
-		url = *cameraURL
-	}
-
-	enabled := s.stateManager.GetCameraEnabled()
-
-	errStr := ""
-	if cameraErr := s.stateManager.GetCameraError(); cameraErr != nil {
-		errStr = cameraErr.Error()
-	}
-
-	return CameraConfig{
-		URL:     url,
-		Enabled: enabled,
-		Status:  string(s.stateManager.GetCameraStatus()),
-		Error:   errStr,
-	}
-}
-
-func (s *Server) handleCameraConfig(w http.ResponseWriter, r *http.Request) {
-	// Return 404 if external camera feature is disabled
-	if !s.enableExternalCamera {
-		http.Error(w, "External camera feature not enabled", http.StatusNotFound)
-		return
-	}
-
-	if r.Method == "GET" {
-		cameraConfig := s.getCameraConfig()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cameraConfig)
-	} else {
-		var cameraConfig CameraConfig
-		if err := json.NewDecoder(r.Body).Decode(&cameraConfig); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		// Save camera settings to config
-		cfg := config.GetInstance()
-		cfg.SetCameraURL(cameraConfig.URL)
-		cfg.SetCameraEnabled(cameraConfig.Enabled)
-
-		// Update camera URL and enabled state in state manager
-		s.stateManager.SetCameraURL(&cameraConfig.URL)
-		s.stateManager.SetCameraEnabled(cameraConfig.Enabled)
-
-		// Update the camera plugin (if registered)
-		if cam, ok := s.plugins.Configurable("camera"); ok {
-			cam.SetBaseURL(cameraConfig.URL)
-			cam.SetEnabled(cameraConfig.Enabled)
-		}
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (s *Server) broadcastCameraConfig() {
-	config := s.getCameraConfig()
-	msg := WSMessage{Type: "cameraConfig", Data: config}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
 	}
 }
 

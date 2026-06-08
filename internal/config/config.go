@@ -283,8 +283,4 @@ func (m *Manager) ApplyToStateManager(stateManager *core.StateManager) {
 	stateManager.SetOmniDistanceUnit(&m.settings.OmniDistanceUnit)
 	stateManager.SetOmniGreenSpeed(&m.settings.OmniGreenSpeed)
 	stateManager.SetOmniCarryAdjustment(&m.settings.OmniCarryAdjustment)
-
-	// Apply camera settings
-	stateManager.SetCameraURL(&m.settings.CameraURL)
-	stateManager.SetCameraEnabled(m.settings.CameraEnabled)
 }

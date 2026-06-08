@@ -11,35 +11,6 @@ const (
 	ConnectionStatusError        ConnectionStatus = "error"
 )
 
-// GSProConnectionStatus represents the current state of the GSPro connection
-type GSProConnectionStatus string
-
-const (
-	GSProStatusDisconnected GSProConnectionStatus = "disconnected"
-	GSProStatusConnecting   GSProConnectionStatus = "connecting"
-	GSProStatusConnected    GSProConnectionStatus = "connected"
-	GSProStatusError        GSProConnectionStatus = "error"
-)
-
-// InfiniteTeesConnectionStatus represents the current state of the Infinite Tees connection
-type InfiniteTeesConnectionStatus string
-
-const (
-	InfiniteTeesStatusDisconnected InfiniteTeesConnectionStatus = "disconnected"
-	InfiniteTeesStatusConnecting   InfiniteTeesConnectionStatus = "connecting"
-	InfiniteTeesStatusConnected    InfiniteTeesConnectionStatus = "connected"
-	InfiniteTeesStatusError        InfiniteTeesConnectionStatus = "error"
-)
-
-// CameraConnectionStatus represents the most recent outcome of camera HTTP calls
-type CameraConnectionStatus string
-
-const (
-	CameraStatusUnknown CameraConnectionStatus = "unknown"
-	CameraStatusOK      CameraConnectionStatus = "ok"
-	CameraStatusError   CameraConnectionStatus = "error"
-)
-
 // MockMode represents the type of mock implementation to use
 type MockMode string
 

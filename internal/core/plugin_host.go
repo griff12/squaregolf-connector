@@ -67,62 +67,12 @@ func statusString(status plugin.Status) string {
 	}
 }
 
-// ReportStatus records the plugin's state generically (keyed by name, for the
-// data-driven UI) and also into the legacy per-integration fields, preserving
-// the existing WebSocket contract until the hardcoded API is removed.
+// ReportStatus records the plugin's state generically, keyed by name, which
+// drives the data-driven integrations UI.
 func (h *pluginHost) ReportStatus(name string, status plugin.Status, err error) {
 	errStr := ""
 	if err != nil {
 		errStr = err.Error()
 	}
 	h.sm.SetIntegrationStatus(name, IntegrationStatus{Status: statusString(status), Error: errStr})
-
-	switch name {
-	case "gspro":
-		h.sm.SetGSProStatus(toGSProStatus(status))
-		h.sm.SetGSProError(err)
-	case "infinitetees":
-		h.sm.SetInfiniteTeesStatus(toInfiniteTeesStatus(status))
-		h.sm.SetInfiniteTeesError(err)
-	case "camera":
-		h.sm.SetCameraStatus(toCameraStatus(status))
-		h.sm.SetCameraError(err)
-	}
-}
-
-func toGSProStatus(status plugin.Status) GSProConnectionStatus {
-	switch status {
-	case plugin.StatusConnecting:
-		return GSProStatusConnecting
-	case plugin.StatusConnected:
-		return GSProStatusConnected
-	case plugin.StatusError:
-		return GSProStatusError
-	default:
-		return GSProStatusDisconnected
-	}
-}
-
-func toInfiniteTeesStatus(status plugin.Status) InfiniteTeesConnectionStatus {
-	switch status {
-	case plugin.StatusConnecting:
-		return InfiniteTeesStatusConnecting
-	case plugin.StatusConnected:
-		return InfiniteTeesStatusConnected
-	case plugin.StatusError:
-		return InfiniteTeesStatusError
-	default:
-		return InfiniteTeesStatusDisconnected
-	}
-}
-
-func toCameraStatus(status plugin.Status) CameraConnectionStatus {
-	switch status {
-	case plugin.StatusError:
-		return CameraStatusError
-	case plugin.StatusConnected, plugin.StatusConnecting:
-		return CameraStatusOK
-	default:
-		return CameraStatusUnknown
-	}
 }
