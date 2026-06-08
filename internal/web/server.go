@@ -20,18 +20,17 @@ import (
 )
 
 type Server struct {
-	stateManager         *core.StateManager
-	bluetoothManager     *core.BluetoothManager
-	launchMonitor        *core.LaunchMonitor
-	plugins              *plugin.Registry
-	enableExternalCamera bool
-	upgrader             websocket.Upgrader
-	clients              map[*websocket.Conn]*wsClient
-	clientsMu            sync.Mutex
-	broadcast            chan []byte
-	httpServer           *http.Server
-	httpServerMu         sync.Mutex
-	webRoot              string
+	stateManager     *core.StateManager
+	bluetoothManager *core.BluetoothManager
+	launchMonitor    *core.LaunchMonitor
+	plugins          *plugin.Registry
+	upgrader         websocket.Upgrader
+	clients          map[*websocket.Conn]*wsClient
+	clientsMu        sync.Mutex
+	broadcast        chan []byte
+	httpServer       *http.Server
+	httpServerMu     sync.Mutex
+	webRoot          string
 }
 
 // wsClient is a single connected websocket peer. Its send channel is written by
@@ -91,20 +90,15 @@ type AppSettings struct {
 	InfiniteTeesAutoConnect bool   `json:"infiniteTeesAutoConnect"`
 }
 
-type FeatureFlags struct {
-	ExternalCamera bool `json:"externalCamera"`
-}
-
 // NewServer builds the HTTP/WebSocket server over the already-assembled plugin
 // registry. It does not import or construct any concrete plugin — those are
 // wired solely in the composition root (main).
-func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, plugins *plugin.Registry, enableExternalCamera bool) *Server {
+func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, plugins *plugin.Registry) *Server {
 	server := &Server{
-		stateManager:         stateManager,
-		bluetoothManager:     bluetoothManager,
-		launchMonitor:        launchMonitor,
-		plugins:              plugins,
-		enableExternalCamera: enableExternalCamera,
+		stateManager:     stateManager,
+		bluetoothManager: bluetoothManager,
+		launchMonitor:    launchMonitor,
+		plugins:          plugins,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -369,7 +363,6 @@ func (s *Server) Start(port int) error {
 	api.HandleFunc("/settings", s.handleSettings).Methods("GET", "POST")
 
 	// Feature flags endpoint
-	api.HandleFunc("/features", s.handleFeatures).Methods("GET")
 
 	// Alignment endpoints
 	api.HandleFunc("/alignment/start", s.handleAlignmentStart).Methods("POST")
@@ -673,14 +666,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(http.StatusOK)
 	}
-}
-
-func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request) {
-	features := FeatureFlags{
-		ExternalCamera: s.enableExternalCamera,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(features)
 }
 
 func (s *Server) handleAlignmentStart(w http.ResponseWriter, r *http.Request) {

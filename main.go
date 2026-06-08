@@ -264,7 +264,7 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 	registry.StartAll(context.Background())
 
 	// Create web server over the assembled registry
-	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, registry, config.EnableExternalCamera)
+	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, registry)
 
 	// Auto-connect any Connectable plugin whose config asks for it.
 	for _, name := range registry.Names() {

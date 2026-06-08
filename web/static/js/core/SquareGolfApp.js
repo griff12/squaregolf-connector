@@ -31,7 +31,6 @@ export class SquareGolfApp {
         this.shotMonitor = new ShotMonitor(this.api, this.eventBus);
 
         // Local state
-        this.features = {};
         this.currentHandedness = 'right';
         this.alignmentExplicitlyStopped = false;
         this.alignmentPanelClosing = false;
@@ -56,14 +55,12 @@ export class SquareGolfApp {
     }
 
     init() {
-        this.loadFeatures().then(() => {
-            this.setupEventListeners();
-            this.setupEventBusListeners();
-            this.setHidden(this.$('statusBar'), true);
-            this.ws.connect();
-            this.settingsManager.load();
-            this.integrationsManager.init();
-        });
+        this.setupEventListeners();
+        this.setupEventBusListeners();
+        this.setHidden(this.$('statusBar'), true);
+        this.ws.connect();
+        this.settingsManager.load();
+        this.integrationsManager.init();
     }
 
     setupEventBusListeners() {
@@ -815,23 +812,6 @@ export class SquareGolfApp {
                 leftBtn.classList.remove('active');
             }
         }
-    }
-
-    async loadFeatures() {
-        try {
-            const response = await this.api.get('/api/features');
-            if (response.ok) {
-                this.features = await response.json();
-                this.applyFeatures();
-            }
-        } catch (error) {
-            console.error('Failed to load features:', error);
-        }
-    }
-
-    applyFeatures() {
-        // Integration availability (camera included) is now driven by the
-        // backend manifest list, so there is nothing feature-gated to toggle here.
     }
 
     applySettings(settings) {

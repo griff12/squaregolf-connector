@@ -56,7 +56,6 @@ func main() {
 		bluetoothManager,
 		launchMonitor,
 		registry,
-		false,
 	)
 
 	bluetoothManager.StartBluetoothConnection(settings.DeviceName, "")
