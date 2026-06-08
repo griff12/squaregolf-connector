@@ -28,12 +28,13 @@ const (
 // they may subscribe to, the capabilities they may invoke, and a channel to
 // report their own health. It is deliberately small — a plugin sees only this.
 type Host interface {
-	// OnBallReady subscribes to ball-ready transitions.
-	OnBallReady(fn func(ready bool))
-	// OnBallMetrics subscribes to parsed ball metrics from a shot.
-	OnBallMetrics(fn func(metrics *protocol.BallMetrics))
-	// OnClubMetrics subscribes to parsed club metrics from a shot.
-	OnClubMetrics(fn func(metrics *protocol.ClubMetrics))
+	// OnBallReady subscribes to ball-ready changes (old, new).
+	OnBallReady(fn func(oldValue, newValue bool))
+	// OnBallMetrics subscribes to ball-metrics changes (old, new); a new shot
+	// arrives as a new non-nil value.
+	OnBallMetrics(fn func(oldValue, newValue *protocol.BallMetrics))
+	// OnClubMetrics subscribes to club-metrics changes (old, new).
+	OnClubMetrics(fn func(oldValue, newValue *protocol.ClubMetrics))
 
 	// ActivateBallDetection asks the launch monitor to arm ball detection.
 	ActivateBallDetection() error
@@ -60,13 +61,11 @@ type Plugin interface {
 
 // Connectable is an optional capability implemented by plugins that maintain a
 // user-controlled network connection (the sim integrations). The web layer
-// type-asserts for it to expose connect/disconnect routes.
+// type-asserts for it to expose connect/disconnect routes; the plugin owns the
+// full connect sequence (reset, enable auto-reconnect, dial) behind BeginConnect.
 type Connectable interface {
-	Connect(host string, port int)
-	Disconnect()
-	EnableAutoReconnect()
-	DisableAutoReconnect()
-	ResetReconnectionState()
+	BeginConnect(host string, port int)
+	EndConnect()
 	GetConnectionInfo() (host string, port int)
 }
 

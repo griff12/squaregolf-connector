@@ -1,78 +1,76 @@
 package camera
 
 import (
+	"context"
 	"log"
 	"sync"
 
-	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
 )
 
-var (
-	cameraInstance *Manager
-	cameraOnce     sync.Once
-)
-
-// Manager owns the vendor-neutral camera orchestration: enable/disable, shot
-// buffering, and surfacing call outcomes into app state. The actual camera API
-// calls are delegated to a Vendor.
+// Manager is the camera plugin: vendor-neutral orchestration (enable/disable,
+// shot buffering, status reporting) that delegates the actual camera API calls
+// to a Vendor. It depends only on the plugin host contract and the pure protocol
+// types — never on the engine. The most isolated outsider: it consumes events
+// and reports status, asking nothing of the launch monitor.
 type Manager struct {
-	stateManager       *core.StateManager
+	host               plugin.Host
 	vendor             Vendor
 	baseURL            string
 	enabled            bool
-	pendingFilename    string            // Stores filename from shot-detected to update with club metrics later
-	pendingClubMetrics *core.ClubMetrics // Buffers club metrics that arrive before shot-detected response
+	pendingFilename    string                // Stores filename from shot-detected to update with club metrics later
+	pendingClubMetrics *protocol.ClubMetrics // Buffers club metrics that arrive before shot-detected response
 	mu                 sync.Mutex
 }
 
-// GetInstance returns the singleton instance of the camera Manager, backed by
-// the default SwingCam vendor.
-func GetInstance(stateManager *core.StateManager, baseURL string, enabled bool) *Manager {
-	cameraOnce.Do(func() {
-		if baseURL == "" {
-			baseURL = "http://localhost:5000"
-		}
+// New builds the camera plugin backed by a specific vendor. Use NewSwingCamVendor
+// for the default camera system, or any other Vendor implementation.
+func New(vendor Vendor, baseURL string, enabled bool) *Manager {
+	if baseURL == "" {
+		baseURL = "http://localhost:5000"
+	}
+	return &Manager{
+		vendor:  vendor,
+		baseURL: baseURL,
+		enabled: enabled,
+	}
+}
 
-		cameraInstance = &Manager{
-			stateManager: stateManager,
-			vendor:       NewSwingCamVendor(baseURL),
-			baseURL:      baseURL,
-			enabled:      enabled,
-		}
+func (m *Manager) Name() string { return "camera" }
 
-		// Register state listeners if enabled
-		if enabled {
-			cameraInstance.registerStateListeners()
-			log.Printf("Camera integration initialized with URL: %s", baseURL)
-		} else {
-			log.Println("Camera integration initialized but disabled")
-		}
-	})
-	return cameraInstance
+// Start subscribes to the device events the camera reacts to. Subscriptions are
+// registered once; the enabled flag gates the callback bodies at runtime.
+func (m *Manager) Start(ctx context.Context, host plugin.Host) error {
+	m.host = host
+	host.OnBallReady(m.onBallReadyChanged)
+	host.OnBallMetrics(m.onLastBallMetricsChanged)
+	host.OnClubMetrics(m.onLastClubMetricsChanged)
+	if m.enabled {
+		log.Printf("Camera integration initialized with URL: %s", m.baseURL)
+	} else {
+		log.Println("Camera integration initialized but disabled")
+	}
+	return nil
+}
+
+func (m *Manager) Stop() error {
+	m.SetEnabled(false)
+	return nil
 }
 
 // recordSuccess marks the most recent camera call as healthy.
 func (m *Manager) recordSuccess() {
-	m.stateManager.SetCameraError(nil)
-	m.stateManager.SetCameraStatus(core.CameraStatusOK)
+	if m.host != nil {
+		m.host.ReportStatus(m.Name(), plugin.StatusConnected, nil)
+	}
 }
 
-// recordError surfaces a camera failure into application state instead of
-// swallowing it, so the UI can show the integration is unhealthy.
+// recordError surfaces a camera failure to the host instead of swallowing it.
 func (m *Manager) recordError(err error) {
 	log.Printf("Camera error: %v", err)
-	m.stateManager.SetCameraError(err)
-	m.stateManager.SetCameraStatus(core.CameraStatusError)
-}
-
-// NewManager builds a camera Manager backed by a specific vendor. Use it for
-// non-default camera systems and in tests; GetInstance wires the default
-// SwingCam vendor as a singleton.
-func NewManager(stateManager *core.StateManager, vendor Vendor, enabled bool) *Manager {
-	return &Manager{
-		stateManager: stateManager,
-		vendor:       vendor,
-		enabled:      enabled,
+	if m.host != nil {
+		m.host.ReportStatus(m.Name(), plugin.StatusError, err)
 	}
 }
 
@@ -93,13 +91,7 @@ func (m *Manager) SetEnabled(enabled bool) {
 	if wasEnabled == enabled {
 		return
 	}
-
-	// Update state manager
-	m.stateManager.SetCameraEnabled(enabled)
-
 	if enabled {
-		// Register state listeners when enabling
-		m.registerStateListeners()
 		log.Println("Camera integration enabled")
 	} else {
 		log.Println("Camera integration disabled")
@@ -117,7 +109,6 @@ func (m *Manager) SetBaseURL(baseURL string) {
 
 	m.baseURL = baseURL
 	m.vendor.SetBaseURL(baseURL)
-	m.stateManager.SetCameraURL(&baseURL)
 	log.Printf("Camera base URL updated to: %s", baseURL)
 }
 
@@ -154,7 +145,7 @@ func (m *Manager) Arm() error {
 
 // ShotDetected saves the clip with ball metrics. Club metrics follow separately
 // via UpdateMetadata when they arrive.
-func (m *Manager) ShotDetected(ballMetrics *core.BallMetrics) error {
+func (m *Manager) ShotDetected(ballMetrics *protocol.BallMetrics) error {
 	m.mu.Lock()
 	enabled := m.enabled
 	m.mu.Unlock()
@@ -213,7 +204,7 @@ func (m *Manager) Cancel() error {
 }
 
 // UpdateMetadata attaches club metrics to a previously saved clip (fire and forget).
-func (m *Manager) UpdateMetadata(filename string, clubMetrics *core.ClubMetrics) error {
+func (m *Manager) UpdateMetadata(filename string, clubMetrics *protocol.ClubMetrics) error {
 	m.mu.Lock()
 	enabled := m.enabled
 	m.mu.Unlock()
@@ -228,8 +219,8 @@ func (m *Manager) UpdateMetadata(filename string, clubMetrics *core.ClubMetrics)
 	}
 
 	clubName := ""
-	if name := m.stateManager.GetClubName(); name != nil {
-		clubName = *name
+	if m.host != nil {
+		clubName = m.host.ClubName()
 	}
 
 	if err := m.vendor.UpdateMetadata(filename, clubMetrics, clubName); err != nil {

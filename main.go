@@ -13,9 +13,10 @@ import (
 
 	appcfg "github.com/brentyates/squaregolf-connector/internal/config"
 	"github.com/brentyates/squaregolf-connector/internal/core"
-	"github.com/brentyates/squaregolf-connector/internal/core/camera"
-	"github.com/brentyates/squaregolf-connector/internal/core/gspro"
 	"github.com/brentyates/squaregolf-connector/internal/logging"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
+	"github.com/brentyates/squaregolf-connector/internal/plugins/camera"
+	"github.com/brentyates/squaregolf-connector/internal/plugins/connectapi"
 	"github.com/brentyates/squaregolf-connector/internal/ui"
 	"github.com/brentyates/squaregolf-connector/internal/web"
 )
@@ -189,9 +190,13 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 	// Setup GSPro integration if enabled
 	if config.EnableGSPro {
 		log.Println("Starting GSPro integration")
-		gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, config.GSProIP, config.GSProPort)
-		gsproIntegration.EnableAutoReconnect()
-		gsproIntegration.Start()
+		host := core.NewPluginHost(stateManager, launchMonitor)
+		registry := plugin.NewRegistry(host)
+		registry.Register(connectapi.New(connectapi.GSPro(), config.GSProIP, config.GSProPort))
+		registry.StartAll(context.Background())
+		if c, ok := registry.Connectable("gspro"); ok {
+			go c.BeginConnect(config.GSProIP, config.GSProPort)
+		}
 	}
 
 	// Wait for interrupt signal to gracefully shut down
@@ -218,14 +223,21 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 	// Apply loaded settings to state manager
 	appcfg.GetInstance().ApplyToStateManager(stateManager)
 
-	// Initialize camera manager only if external camera feature is enabled
-	var cameraManager *camera.Manager
+	// Composition root: assemble the plugin registry. This is the only place
+	// that knows the concrete plugin types. GSPro and InfiniteTees are the same
+	// config-driven Connect-API plugin; a third compatible system is one more
+	// registry line.
+	host := core.NewPluginHost(stateManager, launchMonitor)
+	registry := plugin.NewRegistry(host)
+	registry.Register(connectapi.New(connectapi.GSPro(), config.GSProIP, config.GSProPort))
+	registry.Register(connectapi.New(connectapi.InfiniteTees(), config.InfiniteTeesIP, config.InfiniteTeesPort))
 	if config.EnableExternalCamera {
-		cameraManager = camera.GetInstance(stateManager, settings.CameraURL, settings.CameraEnabled)
+		registry.Register(camera.New(camera.NewSwingCamVendor(settings.CameraURL), settings.CameraURL, settings.CameraEnabled))
 	}
+	registry.StartAll(context.Background())
 
-	// Create web server
-	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, cameraManager, config.GSProIP, config.GSProPort, config.InfiniteTeesIP, config.InfiniteTeesPort, config.EnableExternalCamera)
+	// Create web server over the assembled registry
+	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, registry, config.EnableExternalCamera)
 
 	// Setup auto-connects based on settings
 	if config.EnableGSPro || settings.GSProAutoConnect {
@@ -236,18 +248,16 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 			gsproPort = settings.GSProPort
 		}
 		log.Printf("Auto-connecting to GSPro at %s:%d", gsproIP, gsproPort)
-		gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, gsproIP, gsproPort)
-		gsproIntegration.EnableAutoReconnect()
-		gsproIntegration.Start()
-		go gsproIntegration.Connect(gsproIP, gsproPort)
+		if c, ok := registry.Connectable("gspro"); ok {
+			go c.BeginConnect(gsproIP, gsproPort)
+		}
 	}
 
 	if settings.InfiniteTeesAutoConnect {
 		log.Printf("Auto-connecting to Infinite Tees at %s:%d", settings.InfiniteTeesIP, settings.InfiniteTeesPort)
-		itIntegration := server.GetInfiniteTeesIntegration()
-		itIntegration.EnableAutoReconnect()
-		itIntegration.Start()
-		go itIntegration.Connect(settings.InfiniteTeesIP, settings.InfiniteTeesPort)
+		if c, ok := registry.Connectable("infinitetees"); ok {
+			go c.BeginConnect(settings.InfiniteTeesIP, settings.InfiniteTeesPort)
+		}
 	}
 
 	log.Printf("Auto-connecting to device: %s", settings.DeviceName)

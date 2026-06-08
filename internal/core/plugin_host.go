@@ -18,16 +18,16 @@ func NewPluginHost(sm *StateManager, lm *LaunchMonitor) plugin.Host {
 	return &pluginHost{sm: sm, lm: lm}
 }
 
-func (h *pluginHost) OnBallReady(fn func(bool)) {
-	h.sm.RegisterBallReadyCallback(func(_, newValue bool) { fn(newValue) })
+func (h *pluginHost) OnBallReady(fn func(oldValue, newValue bool)) {
+	h.sm.RegisterBallReadyCallback(fn)
 }
 
-func (h *pluginHost) OnBallMetrics(fn func(*protocol.BallMetrics)) {
-	h.sm.RegisterLastBallMetricsCallback(func(_, newValue *protocol.BallMetrics) { fn(newValue) })
+func (h *pluginHost) OnBallMetrics(fn func(oldValue, newValue *protocol.BallMetrics)) {
+	h.sm.RegisterLastBallMetricsCallback(fn)
 }
 
-func (h *pluginHost) OnClubMetrics(fn func(*protocol.ClubMetrics)) {
-	h.sm.RegisterLastClubMetricsCallback(func(_, newValue *protocol.ClubMetrics) { fn(newValue) })
+func (h *pluginHost) OnClubMetrics(fn func(oldValue, newValue *protocol.ClubMetrics)) {
+	h.sm.RegisterLastClubMetricsCallback(fn)
 }
 
 func (h *pluginHost) ActivateBallDetection() error {

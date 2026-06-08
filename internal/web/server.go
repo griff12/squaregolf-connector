@@ -14,30 +14,24 @@ import (
 
 	"github.com/brentyates/squaregolf-connector/internal/config"
 	"github.com/brentyates/squaregolf-connector/internal/core"
-	"github.com/brentyates/squaregolf-connector/internal/core/camera"
-	"github.com/brentyates/squaregolf-connector/internal/core/gspro"
-	"github.com/brentyates/squaregolf-connector/internal/core/infinitetees"
-	"github.com/brentyates/squaregolf-connector/internal/core/simulator"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
 type Server struct {
-	stateManager            *core.StateManager
-	bluetoothManager        *core.BluetoothManager
-	launchMonitor           *core.LaunchMonitor
-	gsproIntegration        *gspro.Integration
-	infiniteTeesIntegration *infinitetees.Integration
-	integrations            map[string]simulator.Integration
-	cameraManager           *camera.Manager
-	enableExternalCamera    bool
-	upgrader                websocket.Upgrader
-	clients                 map[*websocket.Conn]*wsClient
-	clientsMu               sync.Mutex
-	broadcast               chan []byte
-	httpServer              *http.Server
-	httpServerMu            sync.Mutex
-	webRoot                 string
+	stateManager         *core.StateManager
+	bluetoothManager     *core.BluetoothManager
+	launchMonitor        *core.LaunchMonitor
+	plugins              *plugin.Registry
+	enableExternalCamera bool
+	upgrader             websocket.Upgrader
+	clients              map[*websocket.Conn]*wsClient
+	clientsMu            sync.Mutex
+	broadcast            chan []byte
+	httpServer           *http.Server
+	httpServerMu         sync.Mutex
+	webRoot              string
 }
 
 // wsClient is a single connected websocket peer. Its send channel is written by
@@ -124,18 +118,16 @@ type FeatureFlags struct {
 	ExternalCamera bool `json:"externalCamera"`
 }
 
-func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, cameraManager *camera.Manager, gsproIP string, gsproPort int, itIP string, itPort int, enableExternalCamera bool) *Server {
-	gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, gsproIP, gsproPort)
-	itIntegration := infinitetees.GetInstance(stateManager, launchMonitor, itIP, itPort)
-
+// NewServer builds the HTTP/WebSocket server over the already-assembled plugin
+// registry. It does not import or construct any concrete plugin — those are
+// wired solely in the composition root (main).
+func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, plugins *plugin.Registry, enableExternalCamera bool) *Server {
 	server := &Server{
-		stateManager:            stateManager,
-		bluetoothManager:        bluetoothManager,
-		launchMonitor:           launchMonitor,
-		gsproIntegration:        gsproIntegration,
-		infiniteTeesIntegration: itIntegration,
-		cameraManager:           cameraManager,
-		enableExternalCamera:    enableExternalCamera,
+		stateManager:         stateManager,
+		bluetoothManager:     bluetoothManager,
+		launchMonitor:        launchMonitor,
+		plugins:              plugins,
+		enableExternalCamera: enableExternalCamera,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
@@ -144,10 +136,6 @@ func NewServer(stateManager *core.StateManager, bluetoothManager *core.Bluetooth
 		clients:   make(map[*websocket.Conn]*wsClient),
 		broadcast: make(chan []byte, 100),
 		webRoot:   resolveWebRoot(),
-		integrations: map[string]simulator.Integration{
-			"gspro":        gsproIntegration,
-			"infinitetees": itIntegration,
-		},
 	}
 
 	server.setupCallbacks()
@@ -425,7 +413,7 @@ func (s *Server) getGSProStatus() GSProStatus {
 	}
 
 	// Get current GSPro settings from integration and config
-	ip, port := s.gsproIntegration.GetConnectionInfo()
+	ip, port := s.connectionInfo("gspro")
 	settings := config.GetInstance().GetSettings()
 
 	return GSProStatus{
@@ -453,7 +441,7 @@ func (s *Server) getInfiniteTeesStatus() InfiniteTeesStatus {
 		connectionStatus = "error"
 	}
 
-	ip, port := s.infiniteTeesIntegration.GetConnectionInfo()
+	ip, port := s.connectionInfo("infinitetees")
 	settings := config.GetInstance().GetSettings()
 
 	return InfiniteTeesStatus{
@@ -651,10 +639,10 @@ func (s *Server) handleGSProStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
-// connectIntegration starts and connects a registered sim integration by name.
-// The body is identical for every integration, so all of them route here.
+// connectIntegration connects a registered Connectable plugin by name. The body
+// is identical for every integration, so all of them route here.
 func (s *Server) connectIntegration(name string, w http.ResponseWriter, r *http.Request) {
-	integration, ok := s.integrations[name]
+	integration, ok := s.plugins.Connectable(name)
 	if !ok {
 		http.Error(w, "unknown integration", http.StatusNotFound)
 		return
@@ -669,29 +657,28 @@ func (s *Server) connectIntegration(name string, w http.ResponseWriter, r *http.
 		return
 	}
 
-	go func() {
-		integration.ResetReconnectionState()
-		integration.EnableAutoReconnect()
-		integration.Start()
-		integration.Connect(req.IP, req.Port)
-	}()
+	go integration.BeginConnect(req.IP, req.Port)
 	w.WriteHeader(http.StatusOK)
 }
 
-// disconnectIntegration disables auto-reconnect and disconnects a registered
-// sim integration by name.
+// disconnectIntegration disconnects a registered Connectable plugin by name.
 func (s *Server) disconnectIntegration(name string, w http.ResponseWriter, r *http.Request) {
-	integration, ok := s.integrations[name]
+	integration, ok := s.plugins.Connectable(name)
 	if !ok {
 		http.Error(w, "unknown integration", http.StatusNotFound)
 		return
 	}
 
-	go func() {
-		integration.DisableAutoReconnect()
-		integration.Disconnect()
-	}()
+	go integration.EndConnect()
 	w.WriteHeader(http.StatusOK)
+}
+
+// connectionInfo returns a Connectable plugin's current host/port, or zero values.
+func (s *Server) connectionInfo(name string) (string, int) {
+	if c, ok := s.plugins.Connectable(name); ok {
+		return c.GetConnectionInfo()
+	}
+	return "", 0
 }
 
 func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
@@ -1001,9 +988,11 @@ func (s *Server) handleCameraConfig(w http.ResponseWriter, r *http.Request) {
 		s.stateManager.SetCameraURL(&cameraConfig.URL)
 		s.stateManager.SetCameraEnabled(cameraConfig.Enabled)
 
-		// Update camera manager
-		s.cameraManager.SetBaseURL(cameraConfig.URL)
-		s.cameraManager.SetEnabled(cameraConfig.Enabled)
+		// Update the camera plugin (if registered)
+		if cam, ok := s.plugins.Configurable("camera"); ok {
+			cam.SetBaseURL(cameraConfig.URL)
+			cam.SetEnabled(cameraConfig.Enabled)
+		}
 
 		w.WriteHeader(http.StatusOK)
 	}
@@ -1079,10 +1068,6 @@ func (s *Server) handleAlignmentHandedness(w http.ResponseWriter, r *http.Reques
 	s.stateManager.SetHandedness(&handedness)
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) GetInfiniteTeesIntegration() *infinitetees.Integration {
-	return s.infiniteTeesIntegration
 }
 
 func (s *Server) handlePracticeMode(w http.ResponseWriter, r *http.Request) {

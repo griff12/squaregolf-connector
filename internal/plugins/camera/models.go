@@ -1,6 +1,6 @@
 package camera
 
-import "github.com/brentyates/squaregolf-connector/internal/core"
+import "github.com/brentyates/squaregolf-connector/internal/core/protocol"
 
 // CameraStatus represents the current status of the camera system
 // Maps to the response from GET /api/lm/status
@@ -62,8 +62,8 @@ type CancelResponse struct {
 	State   string `json:"state"`   // New state after cancellation
 }
 
-// convertBallMetrics converts core.BallMetrics to SwingCam BallData format
-func convertBallMetrics(metrics *core.BallMetrics) *BallData {
+// convertBallMetrics converts protocol.BallMetrics to SwingCam BallData format
+func convertBallMetrics(metrics *protocol.BallMetrics) *BallData {
 	if metrics == nil {
 		return nil
 	}
@@ -79,8 +79,8 @@ func convertBallMetrics(metrics *core.BallMetrics) *BallData {
 	}
 }
 
-// convertClubMetrics converts core.ClubMetrics to SwingCam ClubData format
-func convertClubMetrics(metrics *core.ClubMetrics) *ClubData {
+// convertClubMetrics converts protocol.ClubMetrics to SwingCam ClubData format
+func convertClubMetrics(metrics *protocol.ClubMetrics) *ClubData {
 	if metrics == nil {
 		return nil
 	}

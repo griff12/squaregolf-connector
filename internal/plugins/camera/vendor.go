@@ -1,6 +1,6 @@
 package camera
 
-import "github.com/brentyates/squaregolf-connector/internal/core"
+import "github.com/brentyates/squaregolf-connector/internal/core/protocol"
 
 // Vendor abstracts a specific external camera system's API. The Manager owns the
 // vendor-neutral orchestration (enable/disable, shot buffering, status
@@ -19,10 +19,10 @@ type Vendor interface {
 	// ShotDetected stops recording and saves the clip with ball metrics,
 	// returning the saved clip's filename (may be empty if the vendor does not
 	// report one).
-	ShotDetected(ball *core.BallMetrics) (filename string, err error)
+	ShotDetected(ball *protocol.BallMetrics) (filename string, err error)
 	// UpdateMetadata attaches club metrics (and the resolved club name) to a
 	// previously saved clip.
-	UpdateMetadata(filename string, club *core.ClubMetrics, clubName string) error
+	UpdateMetadata(filename string, club *protocol.ClubMetrics, clubName string) error
 	// Cancel aborts an in-progress recording.
 	Cancel() error
 }

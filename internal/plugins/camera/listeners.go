@@ -3,7 +3,7 @@ package camera
 import (
 	"log"
 
-	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
 )
 
 // safeGo runs fn in a goroutine, recovering from panics so a failure in a
@@ -17,13 +17,6 @@ func safeGo(name string, fn func()) {
 		}()
 		fn()
 	}()
-}
-
-// registerStateListeners registers callbacks for state changes
-func (m *Manager) registerStateListeners() {
-	m.stateManager.RegisterBallReadyCallback(m.onBallReadyChanged)
-	m.stateManager.RegisterLastBallMetricsCallback(m.onLastBallMetricsChanged)
-	m.stateManager.RegisterLastClubMetricsCallback(m.onLastClubMetricsChanged)
 }
 
 // onBallReadyChanged handles ball ready state changed event from state manager
@@ -56,7 +49,7 @@ func (m *Manager) onBallReadyChanged(oldValue, newValue bool) {
 
 // onLastBallMetricsChanged handles last ball metrics changed event from state manager
 // When shot metrics are received, trigger shot-detected to save the recording with ball data only
-func (m *Manager) onLastBallMetricsChanged(oldValue, newValue *core.BallMetrics) {
+func (m *Manager) onLastBallMetricsChanged(oldValue, newValue *protocol.BallMetrics) {
 	// Only act when metrics actually change
 	if oldValue == newValue {
 		return
@@ -84,7 +77,7 @@ func (m *Manager) onLastBallMetricsChanged(oldValue, newValue *core.BallMetrics)
 
 // onLastClubMetricsChanged handles club metrics changed event from state manager
 // When club metrics are received, update the pending recording's metadata or buffer them
-func (m *Manager) onLastClubMetricsChanged(oldValue, newValue *core.ClubMetrics) {
+func (m *Manager) onLastClubMetricsChanged(oldValue, newValue *protocol.ClubMetrics) {
 	// Only act when metrics actually change
 	if oldValue == newValue {
 		return

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
 )
 
 // SwingCamVendor talks to the SwingCam HTTP REST API. It is one implementation
@@ -61,7 +61,7 @@ func (v *SwingCamVendor) Arm() error {
 	return nil
 }
 
-func (v *SwingCamVendor) ShotDetected(ball *core.BallMetrics) (string, error) {
+func (v *SwingCamVendor) ShotDetected(ball *protocol.BallMetrics) (string, error) {
 	payloadBytes, err := json.Marshal(convertBallMetrics(ball))
 	if err != nil {
 		return "", fmt.Errorf("marshal ball data: %w", err)
@@ -88,7 +88,7 @@ func (v *SwingCamVendor) ShotDetected(ball *core.BallMetrics) (string, error) {
 	return shotResponse.Filename, nil
 }
 
-func (v *SwingCamVendor) UpdateMetadata(filename string, club *core.ClubMetrics, clubName string) error {
+func (v *SwingCamVendor) UpdateMetadata(filename string, club *protocol.ClubMetrics, clubName string) error {
 	clubData := convertClubMetrics(club)
 	if clubData == nil {
 		return fmt.Errorf("no club metrics to send")
