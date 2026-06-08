@@ -17,6 +17,7 @@ import (
 	"github.com/brentyates/squaregolf-connector/internal/core/camera"
 	"github.com/brentyates/squaregolf-connector/internal/core/gspro"
 	"github.com/brentyates/squaregolf-connector/internal/core/infinitetees"
+	"github.com/brentyates/squaregolf-connector/internal/core/simulator"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
@@ -27,6 +28,7 @@ type Server struct {
 	launchMonitor           *core.LaunchMonitor
 	gsproIntegration        *gspro.Integration
 	infiniteTeesIntegration *infinitetees.Integration
+	integrations            map[string]simulator.Integration
 	cameraManager           *camera.Manager
 	enableExternalCamera    bool
 	upgrader                websocket.Upgrader
@@ -142,6 +144,10 @@ func NewServer(stateManager *core.StateManager, bluetoothManager *core.Bluetooth
 		clients:   make(map[*websocket.Conn]*wsClient),
 		broadcast: make(chan []byte, 100),
 		webRoot:   resolveWebRoot(),
+		integrations: map[string]simulator.Integration{
+			"gspro":        gsproIntegration,
+			"infinitetees": itIntegration,
+		},
 	}
 
 	server.setupCallbacks()
@@ -645,7 +651,15 @@ func (s *Server) handleGSProStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
-func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
+// connectIntegration starts and connects a registered sim integration by name.
+// The body is identical for every integration, so all of them route here.
+func (s *Server) connectIntegration(name string, w http.ResponseWriter, r *http.Request) {
+	integration, ok := s.integrations[name]
+	if !ok {
+		http.Error(w, "unknown integration", http.StatusNotFound)
+		return
+	}
+
 	var req struct {
 		IP   string `json:"ip"`
 		Port int    `json:"port"`
@@ -656,20 +670,36 @@ func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		s.gsproIntegration.ResetReconnectionState()
-		s.gsproIntegration.EnableAutoReconnect()
-		s.gsproIntegration.Start()
-		s.gsproIntegration.Connect(req.IP, req.Port)
+		integration.ResetReconnectionState()
+		integration.EnableAutoReconnect()
+		integration.Start()
+		integration.Connect(req.IP, req.Port)
 	}()
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleGSProDisconnect(w http.ResponseWriter, r *http.Request) {
+// disconnectIntegration disables auto-reconnect and disconnects a registered
+// sim integration by name.
+func (s *Server) disconnectIntegration(name string, w http.ResponseWriter, r *http.Request) {
+	integration, ok := s.integrations[name]
+	if !ok {
+		http.Error(w, "unknown integration", http.StatusNotFound)
+		return
+	}
+
 	go func() {
-		s.gsproIntegration.DisableAutoReconnect()
-		s.gsproIntegration.Disconnect()
+		integration.DisableAutoReconnect()
+		integration.Disconnect()
 	}()
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
+	s.connectIntegration("gspro", w, r)
+}
+
+func (s *Server) handleGSProDisconnect(w http.ResponseWriter, r *http.Request) {
+	s.disconnectIntegration("gspro", w, r)
 }
 
 func (s *Server) handleGSProConfig(w http.ResponseWriter, r *http.Request) {
@@ -713,30 +743,11 @@ func (s *Server) handleInfiniteTeesStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleInfiniteTeesConnect(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		IP   string `json:"ip"`
-		Port int    `json:"port"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	go func() {
-		s.infiniteTeesIntegration.ResetReconnectionState()
-		s.infiniteTeesIntegration.EnableAutoReconnect()
-		s.infiniteTeesIntegration.Start()
-		s.infiniteTeesIntegration.Connect(req.IP, req.Port)
-	}()
-	w.WriteHeader(http.StatusOK)
+	s.connectIntegration("infinitetees", w, r)
 }
 
 func (s *Server) handleInfiniteTeesDisconnect(w http.ResponseWriter, r *http.Request) {
-	go func() {
-		s.infiniteTeesIntegration.DisableAutoReconnect()
-		s.infiniteTeesIntegration.Disconnect()
-	}()
-	w.WriteHeader(http.StatusOK)
+	s.disconnectIntegration("infinitetees", w, r)
 }
 
 func (s *Server) handleInfiniteTeesConfig(w http.ResponseWriter, r *http.Request) {
