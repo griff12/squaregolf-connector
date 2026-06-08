@@ -1,0 +1,107 @@
+package core
+
+import (
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
+)
+
+// pluginHost implements plugin.Host over the engine's StateManager and
+// LaunchMonitor. It is the one place that bridges the narrow plugin contract to
+// the concrete engine; plugins never see StateManager or LaunchMonitor.
+type pluginHost struct {
+	sm *StateManager
+	lm *LaunchMonitor
+}
+
+// NewPluginHost builds the Host the composition root hands to plugins.
+func NewPluginHost(sm *StateManager, lm *LaunchMonitor) plugin.Host {
+	return &pluginHost{sm: sm, lm: lm}
+}
+
+func (h *pluginHost) OnBallReady(fn func(bool)) {
+	h.sm.RegisterBallReadyCallback(func(_, newValue bool) { fn(newValue) })
+}
+
+func (h *pluginHost) OnBallMetrics(fn func(*protocol.BallMetrics)) {
+	h.sm.RegisterLastBallMetricsCallback(func(_, newValue *protocol.BallMetrics) { fn(newValue) })
+}
+
+func (h *pluginHost) OnClubMetrics(fn func(*protocol.ClubMetrics)) {
+	h.sm.RegisterLastClubMetricsCallback(func(_, newValue *protocol.ClubMetrics) { fn(newValue) })
+}
+
+func (h *pluginHost) ActivateBallDetection() error {
+	return h.lm.ActivateBallDetection()
+}
+
+func (h *pluginHost) SetClub(club *protocol.ClubType) {
+	h.sm.SetClub(club)
+}
+
+func (h *pluginHost) SetClubName(name string) {
+	h.sm.SetClubName(&name)
+}
+
+func (h *pluginHost) SetHandedness(handedness protocol.HandednessType) {
+	h.sm.SetHandedness(&handedness)
+}
+
+func (h *pluginHost) ClubName() string {
+	if name := h.sm.GetClubName(); name != nil {
+		return *name
+	}
+	return ""
+}
+
+// ReportStatus routes a plugin's reported state to the matching application
+// status field, preserving the existing WebSocket contract the frontend reads.
+func (h *pluginHost) ReportStatus(name string, status plugin.Status, err error) {
+	switch name {
+	case "gspro":
+		h.sm.SetGSProStatus(toGSProStatus(status))
+		h.sm.SetGSProError(err)
+	case "infinitetees":
+		h.sm.SetInfiniteTeesStatus(toInfiniteTeesStatus(status))
+		h.sm.SetInfiniteTeesError(err)
+	case "camera":
+		h.sm.SetCameraStatus(toCameraStatus(status))
+		h.sm.SetCameraError(err)
+	}
+}
+
+func toGSProStatus(status plugin.Status) GSProConnectionStatus {
+	switch status {
+	case plugin.StatusConnecting:
+		return GSProStatusConnecting
+	case plugin.StatusConnected:
+		return GSProStatusConnected
+	case plugin.StatusError:
+		return GSProStatusError
+	default:
+		return GSProStatusDisconnected
+	}
+}
+
+func toInfiniteTeesStatus(status plugin.Status) InfiniteTeesConnectionStatus {
+	switch status {
+	case plugin.StatusConnecting:
+		return InfiniteTeesStatusConnecting
+	case plugin.StatusConnected:
+		return InfiniteTeesStatusConnected
+	case plugin.StatusError:
+		return InfiniteTeesStatusError
+	default:
+		return InfiniteTeesStatusDisconnected
+	}
+}
+
+func toCameraStatus(status plugin.Status) CameraConnectionStatus {
+	switch status {
+	case plugin.StatusError:
+		return CameraStatusError
+	case plugin.StatusConnected, plugin.StatusConnecting:
+		return CameraStatusOK
+	default:
+		return CameraStatusUnknown
+	}
+}
