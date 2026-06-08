@@ -49,10 +49,11 @@ func InfiniteTees() Config {
 }
 
 // OpenAPI returns a generic config for any system speaking the GSPro Connect
-// API (GSPro, InfiniteTees, and compatible sims). It accepts every known
-// message alias and arms on connect, so a single connection reaches all of them;
-// the user just points it at the right host:port. The "gspro" name keeps the
-// existing status/settings/route plumbing while the UI presents it as "Open API".
+// API (GSPro, InfiniteTees, and compatible sims). It follows GSPro's behavior as
+// the source of truth — ball detection arms when the server reports ready, not
+// on connect — while still accepting InfiniteTees' message aliases so a single
+// connection reaches every compatible sim. The "gspro" name keeps the existing
+// status/settings/route plumbing while the UI presents it as "Open API".
 func OpenAPI() Config {
 	return Config{
 		Name:               "gspro",
@@ -60,7 +61,7 @@ func OpenAPI() Config {
 		DefaultPortValue:   921,
 		ReadyMessages:      []string{"GSPro ready", "IT ready"},
 		PlayerInfoMessages: []string{"GSPro Player Information", "IT Player Information"},
-		ActivateOnConnect:  true,
+		ActivateOnConnect:  false,
 	}
 }
 
