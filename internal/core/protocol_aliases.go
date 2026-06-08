@@ -21,7 +21,13 @@ type (
 	BallMetrics         = protocol.BallMetrics
 	ClubMetrics         = protocol.ClubMetrics
 	AlignmentData       = protocol.AlignmentData
+	DeviceProfile       = protocol.DeviceProfile
+	InitOptions         = protocol.InitOptions
+	NamedCommand        = protocol.NamedCommand
 )
+
+// Device profile registry.
+var ProfileFor = protocol.ProfileFor
 
 // Protocol enum values.
 const (

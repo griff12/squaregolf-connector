@@ -1346,8 +1346,8 @@ func TestBuildOmniInitCommands_UsesConfiguredState(t *testing.T) {
 	}
 
 	for i, expected := range expectedCommands {
-		if commands[i].cmd != expected {
-			t.Fatalf("Expected Omni init command %d to be %s, got %s", i, expected, commands[i].cmd)
+		if commands[i].Hex != expected {
+			t.Fatalf("Expected Omni init command %d to be %s, got %s", i, expected, commands[i].Hex)
 		}
 	}
 }

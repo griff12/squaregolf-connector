@@ -195,8 +195,9 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 		return
 	}
 
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		ApplyOmniBallValidityBitmask(shotMetrics)
+	profile := ProfileFor(lm.stateManager.GetDeviceType())
+	profile.ApplyBallValidity(shotMetrics)
+	if profile.Type() == DeviceTypeOmni {
 		lm.applyOmniPutterBallValidityFilter(shotMetrics)
 	}
 
@@ -223,7 +224,7 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 
 		// Automatically request club metrics after receiving shot metrics
 		if lm.getClient() != nil && lm.getClient().IsConnected() {
-			if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
+			if profile.Type() == DeviceTypeOmni {
 				lm.startOmniClubMetricsRequest()
 			}
 
@@ -240,25 +241,19 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 
 // HandleShotClubMetrics handles shot club metrics notifications (format 11 07).
 func (lm *LaunchMonitor) HandleShotClubMetrics(bytesList []string) {
-	var clubMetrics *ClubMetrics
-	var err error
+	profile := ProfileFor(lm.stateManager.GetDeviceType())
 
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		if len(bytesList) < 19 {
-			log.Printf("Ignoring short Omni club metrics packet (got %d bytes, need 19)", len(bytesList))
-			return
-		}
-		clubMetrics, err = ParseOmniShotClubMetrics(bytesList)
-		lm.completeOmniClubMetricsRequest()
-		lm.applyOmniPutterValidityFilter(clubMetrics)
-	} else {
-		clubMetrics, err = ParseShotClubMetrics(bytesList)
-		lm.applyPutterClubFilter(clubMetrics)
-	}
-
+	clubMetrics, err := profile.ParseClubMetrics(bytesList)
 	if err != nil {
 		log.Printf("Failed to parse club metrics data: %v", err)
 		return
+	}
+
+	if profile.Type() == DeviceTypeOmni {
+		lm.completeOmniClubMetricsRequest()
+		lm.applyOmniPutterValidityFilter(clubMetrics)
+	} else {
+		lm.applyPutterClubFilter(clubMetrics)
 	}
 
 	lm.stateManager.SetLastClubMetrics(clubMetrics)
@@ -722,14 +717,9 @@ func (lm *LaunchMonitor) ActivateBallDetection() error {
 		spinMode = &defaultSpinMode
 	}
 
-	// Send club command (Omni uses adjusted clubSel encoding)
+	// Send club command (the device profile encodes Home vs Omni clubSel)
 	seq := lm.getNextSequence()
-	var clubCommand string
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		clubCommand = OmniClubCommand(seq, *club, *handedness)
-	} else {
-		clubCommand = ClubCommand(seq, *club, *handedness)
-	}
+	clubCommand := ProfileFor(lm.stateManager.GetDeviceType()).ClubCommand(seq, *club, *handedness)
 
 	err := lm.SendCommand(clubCommand)
 	if err != nil {
@@ -972,47 +962,33 @@ func (lm *LaunchMonitor) sendOmniInitSequence() {
 		return
 	}
 
-	log.Println("LaunchMonitor: Sending Omni init sequence")
+	log.Println("LaunchMonitor: Sending device init sequence")
 	commands := lm.buildOmniInitCommands()
 
 	for _, c := range commands {
 		if !lm.getClient().IsConnected() {
-			log.Println("LaunchMonitor: Device disconnected during Omni init, aborting")
+			log.Println("LaunchMonitor: Device disconnected during init, aborting")
 			return
 		}
-		err := lm.SendCommand(c.cmd)
-		if err != nil {
-			log.Printf("LaunchMonitor: Failed to send Omni %s: %v", c.name, err)
+		if err := lm.SendCommand(c.Hex); err != nil {
+			log.Printf("LaunchMonitor: Failed to send %s: %v", c.Name, err)
 		}
 	}
 
-	log.Println("LaunchMonitor: Omni init sequence complete")
+	log.Println("LaunchMonitor: Device init sequence complete")
 }
 
-func (lm *LaunchMonitor) buildOmniInitCommands() []struct {
-	name string
-	cmd  string
-} {
+// buildOmniInitCommands resolves the device profile's post-connect init sequence
+// from current app state.
+func (lm *LaunchMonitor) buildOmniInitCommands() []NamedCommand {
 	speedUnit, distanceUnit := lm.omniUnitsFromState()
-
-	commands := []struct {
-		name string
-		cmd  string
-	}{
-		{"SetUnits", OmniSetUnitsCommand(lm.getNextSequence(), speedUnit, distanceUnit)},
-		{"SetCarryDistanceAdjustment", OmniSetCarryDistanceAdjustmentCommand(lm.getNextSequence(), lm.omniCarryAdjustmentFromState())},
-		{"SetGreenSpeed", OmniSetGreenSpeedCommand(lm.getNextSequence(), lm.omniGreenSpeedFromState())},
-	}
-
-	handedness := lm.stateManager.GetHandedness()
-	if handedness != nil {
-		commands = append(commands, struct {
-			name string
-			cmd  string
-		}{"SetHanded", OmniSetHandedCommand(lm.getNextSequence(), *handedness)})
-	}
-
-	return commands
+	return ProfileFor(lm.stateManager.GetDeviceType()).InitCommands(InitOptions{
+		SpeedUnit:       speedUnit,
+		DistanceUnit:    distanceUnit,
+		CarryAdjustment: lm.omniCarryAdjustmentFromState(),
+		GreenSpeed:      lm.omniGreenSpeedFromState(),
+		Handedness:      lm.stateManager.GetHandedness(),
+	}, lm.getNextSequence)
 }
 
 func (lm *LaunchMonitor) HandleBatteryMessage(bytesList []string) {
