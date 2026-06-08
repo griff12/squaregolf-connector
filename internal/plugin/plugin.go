@@ -66,13 +66,4 @@ type Plugin interface {
 type Connectable interface {
 	BeginConnect(host string, port int)
 	EndConnect()
-	GetConnectionInfo() (host string, port int)
-}
-
-// Configurable is an optional capability implemented by plugins with
-// user-editable runtime configuration (e.g. the camera's base URL and toggle).
-type Configurable interface {
-	SetEnabled(enabled bool)
-	IsEnabled() bool
-	SetBaseURL(url string)
 }

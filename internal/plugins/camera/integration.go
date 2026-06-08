@@ -149,13 +149,6 @@ func (m *Manager) SetBaseURL(baseURL string) {
 	log.Printf("Camera base URL updated to: %s", baseURL)
 }
 
-// GetBaseURL returns the current camera base URL
-func (m *Manager) GetBaseURL() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.baseURL
-}
-
 // Arm tells the camera to start recording (fire and forget).
 func (m *Manager) Arm() error {
 	m.mu.Lock()

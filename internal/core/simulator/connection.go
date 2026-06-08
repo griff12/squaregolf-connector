@@ -145,10 +145,6 @@ func (b *Base) IsConnected() bool {
 	return b.Connected
 }
 
-func (b *Base) GetConnectionInfo() (string, int) {
-	return b.Host, b.Port
-}
-
 func (b *Base) Start() {
 	b.ConnectMutex.Lock()
 	defer b.ConnectMutex.Unlock()

@@ -23,31 +23,6 @@ type Config struct {
 	ActivateOnConnect  bool     // arm ball detection immediately on connect
 }
 
-// GSPro returns the config for a stock GSPro Connect endpoint.
-func GSPro() Config {
-	return Config{
-		Name:               "gspro",
-		DisplayName:        "GSPro",
-		DefaultPortValue:   921,
-		ReadyMessages:      []string{"GSPro ready"},
-		PlayerInfoMessages: []string{"GSPro Player Information"},
-		ActivateOnConnect:  false,
-	}
-}
-
-// InfiniteTees returns the config for an InfiniteTees endpoint: the same
-// protocol with extra message aliases that arms ball detection on connect.
-func InfiniteTees() Config {
-	return Config{
-		Name:               "infinitetees",
-		DisplayName:        "Infinite Tees",
-		DefaultPortValue:   999,
-		ReadyMessages:      []string{"GSPro ready", "IT ready"},
-		PlayerInfoMessages: []string{"GSPro Player Information", "IT Player Information"},
-		ActivateOnConnect:  true,
-	}
-}
-
 // OpenAPI returns a generic config for any system speaking the GSPro Connect
 // API (GSPro, InfiniteTees, and compatible sims). It follows GSPro's behavior as
 // the source of truth — ball detection arms when the server reports ready, not
@@ -77,8 +52,6 @@ type Integration struct {
 	autoConnect    bool
 	shotNumber     int
 	lastShotNumber int
-	shotListeners  []func(ShotData)
-	lastPlayerInfo *PlayerInfo
 	lastStatus     plugin.Status
 	lastError      error
 }
@@ -119,9 +92,6 @@ func (g *Integration) Configure(values map[string]any) {
 	}
 }
 
-// AutoConnect reports whether the user asked to connect automatically.
-func (g *Integration) AutoConnect() bool { return g.autoConnect }
-
 func toInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case float64:
@@ -136,10 +106,9 @@ func toInt(v any) (int, bool) {
 // New creates a Connect-API plugin for the given config and endpoint.
 func New(cfg Config, addr string, port int) *Integration {
 	return &Integration{
-		cfg:           cfg,
-		addr:          addr,
-		port:          port,
-		shotListeners: make([]func(ShotData), 0),
+		cfg:  cfg,
+		addr: addr,
+		port: port,
 	}
 }
 
@@ -255,8 +224,6 @@ func (g *Integration) handleReady() {
 }
 
 func (g *Integration) handlePlayerMessage(playerInfo *PlayerInfo) {
-	g.lastPlayerInfo = playerInfo
-
 	if clubName := playerInfo.Player.Club; clubName != "" {
 		clubType := g.mapClubToInternal(clubName)
 		if clubType != nil {
@@ -287,10 +254,6 @@ func (g *Integration) sendData(shotData ShotData) error {
 		return err
 	}
 	return g.Base.SendMessage(jsonData)
-}
-
-func (g *Integration) AddShotListener(listener func(ShotData)) {
-	g.shotListeners = append(g.shotListeners, listener)
 }
 
 func contains(list []string, s string) bool {

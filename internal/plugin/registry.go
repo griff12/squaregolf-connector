@@ -69,16 +69,6 @@ func (r *Registry) Connectable(name string) (Connectable, bool) {
 	return c, ok
 }
 
-// Configurable returns the plugin as a Configurable, if it supports it.
-func (r *Registry) Configurable(name string) (Configurable, bool) {
-	p, ok := r.plugins[name]
-	if !ok {
-		return nil, false
-	}
-	c, ok := p.(Configurable)
-	return c, ok
-}
-
 // ConfigStore returns the plugin as a ConfigStore, if it supports it.
 func (r *Registry) ConfigStore(name string) (ConfigStore, bool) {
 	p, ok := r.plugins[name]
