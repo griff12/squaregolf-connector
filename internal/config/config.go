@@ -25,6 +25,9 @@ type Settings struct {
 	InfiniteTeesAutoConnect bool   `json:"infiniteTeesAutoConnect"`
 	CameraURL               string `json:"cameraURL"`
 	CameraEnabled           bool   `json:"cameraEnabled"`
+	// Integrations holds generic, per-plugin config keyed by plugin name. New
+	// plugins persist here without adding typed fields above.
+	Integrations map[string]map[string]any `json:"integrations,omitempty"`
 }
 
 // Manager handles loading and saving configuration
@@ -238,6 +241,27 @@ func (m *Manager) SetCameraURL(url string) error {
 func (m *Manager) SetCameraEnabled(enabled bool) error {
 	m.mu.Lock()
 	m.settings.CameraEnabled = enabled
+	m.mu.Unlock()
+	return m.Save()
+}
+
+// GetIntegrationConfig returns the persisted generic config for a plugin, or nil.
+func (m *Manager) GetIntegrationConfig(name string) map[string]any {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.Integrations == nil {
+		return nil
+	}
+	return m.settings.Integrations[name]
+}
+
+// SetIntegrationConfig persists the generic config for a plugin and saves.
+func (m *Manager) SetIntegrationConfig(name string, cfg map[string]any) error {
+	m.mu.Lock()
+	if m.settings.Integrations == nil {
+		m.settings.Integrations = make(map[string]map[string]any)
+	}
+	m.settings.Integrations[name] = cfg
 	m.mu.Unlock()
 	return m.Save()
 }

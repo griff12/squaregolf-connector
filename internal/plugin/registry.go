@@ -78,3 +78,44 @@ func (r *Registry) Configurable(name string) (Configurable, bool) {
 	c, ok := p.(Configurable)
 	return c, ok
 }
+
+// ConfigStore returns the plugin as a ConfigStore, if it supports it.
+func (r *Registry) ConfigStore(name string) (ConfigStore, bool) {
+	p, ok := r.plugins[name]
+	if !ok {
+		return nil, false
+	}
+	c, ok := p.(ConfigStore)
+	return c, ok
+}
+
+// View is a single integration's full state for the generic API: its manifest,
+// its capability flags, its current config values, and its live status.
+type View struct {
+	Manifest
+	Connectable  bool           `json:"connectable"`
+	Configvalues map[string]any `json:"config,omitempty"`
+}
+
+// Views returns one View per registered plugin (status is layered on by the
+// caller, which owns the status state). Plugins that do not describe themselves
+// are skipped.
+func (r *Registry) Views() []View {
+	views := make([]View, 0, len(r.order))
+	for _, name := range r.order {
+		p := r.plugins[name]
+		d, ok := p.(Describable)
+		if !ok {
+			continue
+		}
+		view := View{Manifest: d.Describe()}
+		if _, ok := p.(Connectable); ok {
+			view.Connectable = true
+		}
+		if cs, ok := p.(ConfigStore); ok {
+			view.Configvalues = cs.Config()
+		}
+		views = append(views, view)
+	}
+	return views
+}

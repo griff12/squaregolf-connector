@@ -261,6 +261,11 @@ func (s *Server) setupCallbacks() {
 		s.broadcastInfiniteTeesStatus()
 	})
 
+	// Generic, registry-driven integration status (drives the data-driven UI)
+	s.stateManager.RegisterIntegrationStatusCallback(func(name string, status core.IntegrationStatus) {
+		s.broadcastIntegration(name)
+	})
+
 	s.stateManager.RegisterCameraURLCallback(func(oldValue, newValue *string) {
 		s.broadcastCameraConfig()
 	})
@@ -488,6 +493,12 @@ func (s *Server) Start(port int) error {
 
 	// Camera endpoints
 	api.HandleFunc("/camera/config", s.handleCameraConfig).Methods("GET", "POST")
+
+	// Generic, registry-driven integration endpoints (data-driven UI)
+	api.HandleFunc("/integrations", s.handleIntegrations).Methods("GET")
+	api.HandleFunc("/integrations/{name}/connect", s.handleIntegrationConnect).Methods("POST")
+	api.HandleFunc("/integrations/{name}/disconnect", s.handleIntegrationDisconnect).Methods("POST")
+	api.HandleFunc("/integrations/{name}/config", s.handleIntegrationConfig).Methods("GET", "POST")
 
 	// Settings endpoints
 	api.HandleFunc("/settings", s.handleSettings).Methods("GET", "POST")

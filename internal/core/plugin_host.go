@@ -53,9 +53,30 @@ func (h *pluginHost) ClubName() string {
 	return ""
 }
 
-// ReportStatus routes a plugin's reported state to the matching application
-// status field, preserving the existing WebSocket contract the frontend reads.
+// statusString maps a plugin status to the generic wire string.
+func statusString(status plugin.Status) string {
+	switch status {
+	case plugin.StatusConnecting:
+		return "connecting"
+	case plugin.StatusConnected:
+		return "connected"
+	case plugin.StatusError:
+		return "error"
+	default:
+		return "disconnected"
+	}
+}
+
+// ReportStatus records the plugin's state generically (keyed by name, for the
+// data-driven UI) and also into the legacy per-integration fields, preserving
+// the existing WebSocket contract until the hardcoded API is removed.
 func (h *pluginHost) ReportStatus(name string, status plugin.Status, err error) {
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	h.sm.SetIntegrationStatus(name, IntegrationStatus{Status: statusString(status), Error: errStr})
+
 	switch name {
 	case "gspro":
 		h.sm.SetGSProStatus(toGSProStatus(status))

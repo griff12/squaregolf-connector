@@ -38,6 +38,20 @@ type AppConfig struct {
 	SimulateOmni         bool
 }
 
+// seedIntegrationConfig applies a plugin's persisted generic config, falling
+// back to legacy typed settings when none has been saved yet.
+func seedIntegrationConfig(registry *plugin.Registry, name string, fallback map[string]any) {
+	cs, ok := registry.ConfigStore(name)
+	if !ok {
+		return
+	}
+	cfg := appcfg.GetInstance().GetIntegrationConfig(name)
+	if cfg == nil {
+		cfg = fallback
+	}
+	cs.Configure(cfg)
+}
+
 // Initialize the backend services (Bluetooth, state manager, etc.)
 func initializeBackend(config AppConfig) (*core.StateManager, *core.BluetoothManager, *core.LaunchMonitor) {
 	// Initialize logging
@@ -227,29 +241,48 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 	// that knows the concrete plugin types. GSPro and InfiniteTees are the same
 	// config-driven Connect-API plugin; a third compatible system is one more
 	// registry line.
-	host := core.NewPluginHost(stateManager, launchMonitor)
-	registry := plugin.NewRegistry(host)
+	pluginHost := core.NewPluginHost(stateManager, launchMonitor)
+	registry := plugin.NewRegistry(pluginHost)
 	registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
 	if config.EnableExternalCamera {
 		registry.Register(camera.New(camera.NewSwingCamVendor(settings.CameraURL), settings.CameraURL, settings.CameraEnabled))
 	}
+
+	// Seed each plugin's config from persisted generic config, falling back to
+	// the legacy typed settings so existing installs keep their values.
+	seedIntegrationConfig(registry, "gspro", map[string]any{
+		"host": config.GSProIP, "port": config.GSProPort, "autoConnect": settings.GSProAutoConnect,
+	})
+	seedIntegrationConfig(registry, "camera", map[string]any{
+		"url": settings.CameraURL, "enabled": settings.CameraEnabled,
+	})
+
 	registry.StartAll(context.Background())
 
 	// Create web server over the assembled registry
 	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, registry, config.EnableExternalCamera)
 
-	// Setup auto-connects based on settings
-	if config.EnableGSPro || settings.GSProAutoConnect {
-		gsproIP := config.GSProIP
-		gsproPort := config.GSProPort
-		if !config.EnableGSPro && settings.GSProAutoConnect {
-			gsproIP = settings.GSProIP
-			gsproPort = settings.GSProPort
+	// Auto-connect any Connectable plugin whose config asks for it.
+	for _, name := range registry.Names() {
+		c, ok := registry.Connectable(name)
+		if !ok {
+			continue
 		}
-		log.Printf("Auto-connecting to Open API endpoint at %s:%d", gsproIP, gsproPort)
-		if c, ok := registry.Connectable("gspro"); ok {
-			go c.BeginConnect(gsproIP, gsproPort)
+		cfg := map[string]any{}
+		if cs, ok := registry.ConfigStore(name); ok {
+			cfg = cs.Config()
 		}
+		auto, _ := cfg["autoConnect"].(bool)
+		if config.EnableGSPro && name == "gspro" {
+			auto = true
+		}
+		if !auto {
+			continue
+		}
+		addr, _ := cfg["host"].(string)
+		port, _ := cfg["port"].(int)
+		log.Printf("Auto-connecting %s at %s:%d", name, addr, port)
+		go c.BeginConnect(addr, port)
 	}
 
 	log.Printf("Auto-connecting to device: %s", settings.DeviceName)

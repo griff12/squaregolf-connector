@@ -116,7 +116,9 @@ type StateManager struct {
 		CapacitorReady      []StateCallback[bool]
 		BatteryCharging     []StateCallback[*int]
 	}
-	mu sync.RWMutex
+	integrationStatuses        map[string]IntegrationStatus
+	integrationStatusCallbacks []func(name string, status IntegrationStatus)
+	mu                         sync.RWMutex
 }
 
 var (

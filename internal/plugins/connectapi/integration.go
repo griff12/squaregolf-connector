@@ -74,12 +74,63 @@ type Integration struct {
 	host           plugin.Host
 	addr           string
 	port           int
+	autoConnect    bool
 	shotNumber     int
 	lastShotNumber int
 	shotListeners  []func(ShotData)
 	lastPlayerInfo *PlayerInfo
 	lastStatus     plugin.Status
 	lastError      error
+}
+
+// Describe advertises the plugin to the data-driven UI.
+func (g *Integration) Describe() plugin.Manifest {
+	return plugin.Manifest{
+		Name:        g.cfg.Name,
+		DisplayName: g.cfg.DisplayName,
+		Icon:        "computer",
+		ConfigSchema: []plugin.ConfigField{
+			{Key: "host", Label: "Server IP Address", Type: plugin.FieldText},
+			{Key: "port", Label: "Server Port", Type: plugin.FieldNumber, Help: "GSPro uses 921, Infinite Tees uses 999"},
+			{Key: "autoConnect", Label: "Connect automatically", Type: plugin.FieldToggle},
+		},
+	}
+}
+
+// Config returns the current connection settings.
+func (g *Integration) Config() map[string]any {
+	return map[string]any{
+		"host":        g.addr,
+		"port":        g.port,
+		"autoConnect": g.autoConnect,
+	}
+}
+
+// Configure applies new connection settings.
+func (g *Integration) Configure(values map[string]any) {
+	if v, ok := values["host"].(string); ok {
+		g.addr = v
+	}
+	if port, ok := toInt(values["port"]); ok {
+		g.port = port
+	}
+	if v, ok := values["autoConnect"].(bool); ok {
+		g.autoConnect = v
+	}
+}
+
+// AutoConnect reports whether the user asked to connect automatically.
+func (g *Integration) AutoConnect() bool { return g.autoConnect }
+
+func toInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	default:
+		return 0, false
+	}
 }
 
 // New creates a Connect-API plugin for the given config and endpoint.

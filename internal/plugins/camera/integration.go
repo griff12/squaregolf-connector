@@ -39,6 +39,39 @@ func New(vendor Vendor, baseURL string, enabled bool) *Manager {
 
 func (m *Manager) Name() string { return "camera" }
 
+// Describe advertises the plugin to the data-driven UI.
+func (m *Manager) Describe() plugin.Manifest {
+	return plugin.Manifest{
+		Name:        "camera",
+		DisplayName: "Camera",
+		Icon:        "videocam",
+		ConfigSchema: []plugin.ConfigField{
+			{Key: "url", Label: "Camera URL", Type: plugin.FieldText},
+			{Key: "enabled", Label: "Enable camera integration", Type: plugin.FieldToggle},
+		},
+	}
+}
+
+// Config returns the current camera settings.
+func (m *Manager) Config() map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return map[string]any{
+		"url":     m.baseURL,
+		"enabled": m.enabled,
+	}
+}
+
+// Configure applies new camera settings.
+func (m *Manager) Configure(values map[string]any) {
+	if v, ok := values["url"].(string); ok {
+		m.SetBaseURL(v)
+	}
+	if v, ok := values["enabled"].(bool); ok {
+		m.SetEnabled(v)
+	}
+}
+
 // Start subscribes to the device events the camera reacts to. Subscriptions are
 // registered once; the enabled flag gates the callback bodies at runtime.
 func (m *Manager) Start(ctx context.Context, host plugin.Host) error {
