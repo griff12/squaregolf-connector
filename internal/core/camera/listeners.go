@@ -6,6 +6,19 @@ import (
 	"github.com/brentyates/squaregolf-connector/internal/core"
 )
 
+// safeGo runs fn in a goroutine, recovering from panics so a failure in a
+// detached camera action can never crash the process.
+func safeGo(name string, fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("camera: %s goroutine panicked: %v", name, r)
+			}
+		}()
+		fn()
+	}()
+}
+
 // registerStateListeners registers callbacks for state changes
 func (m *Manager) registerStateListeners() {
 	m.stateManager.RegisterBallReadyCallback(m.onBallReadyChanged)
@@ -33,11 +46,11 @@ func (m *Manager) onBallReadyChanged(oldValue, newValue bool) {
 	// When ball becomes ready, arm the camera to start recording
 	if newValue {
 		log.Println("Ball ready detected, arming camera")
-		go m.Arm() // Run in goroutine to avoid blocking
+		safeGo("arm", func() { m.Arm() }) // run detached to avoid blocking the state fan-out
 	} else {
 		// When ball is no longer ready, cancel any armed recording
 		log.Println("Ball no longer ready, canceling camera")
-		go m.Cancel() // Run in goroutine to avoid blocking
+		safeGo("cancel", func() { m.Cancel() }) // run detached to avoid blocking the state fan-out
 	}
 }
 
@@ -66,7 +79,7 @@ func (m *Manager) onLastBallMetricsChanged(oldValue, newValue *core.BallMetrics)
 	// New shot detected, tell camera to stop recording and save the clip with ball metrics only
 	// Club metrics will be sent separately via PATCH when they arrive
 	log.Printf("Ball metrics received (ball speed: %.1f m/s), triggering camera shot-detected", newValue.BallSpeedMPS)
-	go m.ShotDetected(newValue) // Run in goroutine to avoid blocking
+	safeGo("shot-detected", func() { m.ShotDetected(newValue) }) // run detached to avoid blocking the state fan-out
 }
 
 // onLastClubMetricsChanged handles club metrics changed event from state manager
@@ -105,5 +118,5 @@ func (m *Manager) onLastClubMetricsChanged(oldValue, newValue *core.ClubMetrics)
 
 	// We have a filename, send PATCH request to update metadata with club data
 	log.Printf("Club metrics received, updating metadata for %s", pendingFilename)
-	go m.UpdateMetadata(pendingFilename, newValue) // Run in goroutine to avoid blocking
+	safeGo("update-metadata", func() { m.UpdateMetadata(pendingFilename, newValue) }) // run detached to avoid blocking the state fan-out
 }

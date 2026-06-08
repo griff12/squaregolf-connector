@@ -45,14 +45,6 @@ func (g *Integration) DefaultPort() int {
 	return 921
 }
 
-func (g *Integration) GetStateManager() *core.StateManager {
-	return g.stateManager
-}
-
-func (g *Integration) GetLaunchMonitor() *core.LaunchMonitor {
-	return g.launchMonitor
-}
-
 func (g *Integration) SetStatus(status simulator.ConnectionStatus) {
 	switch status {
 	case simulator.StatusDisconnected:

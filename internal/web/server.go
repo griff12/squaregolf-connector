@@ -30,12 +30,21 @@ type Server struct {
 	cameraManager           *camera.Manager
 	enableExternalCamera    bool
 	upgrader                websocket.Upgrader
-	clients                 map[*websocket.Conn]chan []byte
+	clients                 map[*websocket.Conn]*wsClient
 	clientsMu               sync.Mutex
 	broadcast               chan []byte
 	httpServer              *http.Server
 	httpServerMu            sync.Mutex
 	webRoot                 string
+}
+
+// wsClient is a single connected websocket peer. Its send channel is written by
+// the broadcaster and drained by a single per-connection writer goroutine. The
+// channel is never closed; the owning connection signals teardown by closing
+// done exactly once, so sends can never race with a close.
+type wsClient struct {
+	send chan []byte
+	done chan struct{}
 }
 
 type WSMessage struct {
@@ -128,7 +137,7 @@ func NewServer(stateManager *core.StateManager, bluetoothManager *core.Bluetooth
 				return true
 			},
 		},
-		clients:   make(map[*websocket.Conn]chan []byte),
+		clients:   make(map[*websocket.Conn]*wsClient),
 		broadcast: make(chan []byte, 100),
 		webRoot:   resolveWebRoot(),
 	}
@@ -292,26 +301,19 @@ func (s *Server) setupCallbacks() {
 func (s *Server) handleMessages() {
 	for message := range s.broadcast {
 		s.clientsMu.Lock()
-		clientCount := len(s.clients)
-		activeChannels := make([]chan []byte, 0, clientCount)
-		for _, clientChan := range s.clients {
-			activeChannels = append(activeChannels, clientChan)
+		activeClients := make([]*wsClient, 0, len(s.clients))
+		for _, client := range s.clients {
+			activeClients = append(activeClients, client)
 		}
 		s.clientsMu.Unlock()
 
-		for _, clientChan := range activeChannels {
-			func(ch chan []byte) {
-				defer func() {
-					if r := recover(); r != nil {
-						// Channel was closed by client disconnect, ignore panic
-					}
-				}()
-				select {
-				case ch <- message:
-				default:
-					log.Printf("WebSocket client buffer full, dropping message")
-				}
-			}(clientChan)
+		for _, client := range activeClients {
+			select {
+			case client.send <- message:
+			case <-client.done:
+			default:
+				log.Printf("WebSocket client buffer full, dropping message")
+			}
 		}
 	}
 }
@@ -547,30 +549,38 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientChan := make(chan []byte, 100)
+	client := &wsClient{
+		send: make(chan []byte, 100),
+		done: make(chan struct{}),
+	}
 
 	s.clientsMu.Lock()
-	s.clients[conn] = clientChan
+	s.clients[conn] = client
 	s.clientsMu.Unlock()
 
 	go func() {
 		defer conn.Close()
-		for msg := range clientChan {
-			conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				log.Printf("WebSocket send error: %v, closing client", err)
+		for {
+			select {
+			case msg := <-client.send:
+				conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					log.Printf("WebSocket send error: %v, closing client", err)
+					return
+				}
+			case <-client.done:
 				return
 			}
 		}
 	}()
 
-	s.sendInitialStatus(clientChan)
+	s.sendInitialStatus(client)
 
 	defer func() {
 		s.clientsMu.Lock()
-		if ch, exists := s.clients[conn]; exists {
+		if _, exists := s.clients[conn]; exists {
 			delete(s.clients, conn)
-			close(ch)
+			close(client.done)
 		}
 		s.clientsMu.Unlock()
 		conn.Close()
@@ -584,30 +594,19 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) sendInitialStatus(clientChan chan []byte) {
-	// Send device status
-	deviceStatus := s.getDeviceStatus()
-	msg := WSMessage{Type: "deviceStatus", Data: deviceStatus}
-	data, _ := json.Marshal(msg)
-	clientChan <- data
+func (s *Server) sendInitialStatus(client *wsClient) {
+	send := func(msgType string, payload interface{}) {
+		data, _ := json.Marshal(WSMessage{Type: msgType, Data: payload})
+		select {
+		case client.send <- data:
+		case <-client.done:
+		}
+	}
 
-	// Send GSPro status
-	gsproStatus := s.getGSProStatus()
-	msg = WSMessage{Type: "gsproStatus", Data: gsproStatus}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
-
-	// Send Infinite Tees status
-	itStatus := s.getInfiniteTeesStatus()
-	msg = WSMessage{Type: "infiniteTeesStatus", Data: itStatus}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
-
-	// Send camera config
-	cameraConfig := s.getCameraConfig()
-	msg = WSMessage{Type: "cameraConfig", Data: cameraConfig}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
+	send("deviceStatus", s.getDeviceStatus())
+	send("gsproStatus", s.getGSProStatus())
+	send("infiniteTeesStatus", s.getInfiniteTeesStatus())
+	send("cameraConfig", s.getCameraConfig())
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
