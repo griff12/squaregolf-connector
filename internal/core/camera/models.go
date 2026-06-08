@@ -37,15 +37,15 @@ type BallData struct {
 // ClubData represents club metrics sent to SwingCam (flat structure, camelCase)
 // Sent directly as request body to PATCH /api/recordings/{filename}/metadata
 type ClubData struct {
-	ClubSpeed    float64 `json:"clubSpeed,omitempty"`    // Club head speed in mph
-	ClubPath     float64 `json:"clubPath,omitempty"`     // Club path in degrees (+ = in-to-out, - = out-to-in)
-	FaceAngle    float64 `json:"faceAngle,omitempty"`    // Face angle at impact in degrees (+ = open, - = closed)
-	FaceToPath   float64 `json:"faceToPath,omitempty"`   // Face to path relationship in degrees
-	AttackAngle  float64 `json:"attackAngle,omitempty"`  // Attack angle in degrees (+ = up, - = down)
-	DynamicLoft  float64 `json:"dynamicLoft,omitempty"`  // Dynamic loft at impact in degrees
-	SmashFactor  float64 `json:"smashFactor,omitempty"`  // Smash factor (ball speed / club speed)
-	LowPoint     float64 `json:"lowPoint,omitempty"`     // Low point position (inches before/after ball)
-	ClubType     string  `json:"clubType,omitempty"`     // Club name (e.g., "Driver", "7-iron")
+	ClubSpeed   float64 `json:"clubSpeed,omitempty"`   // Club head speed in mph
+	ClubPath    float64 `json:"clubPath,omitempty"`    // Club path in degrees (+ = in-to-out, - = out-to-in)
+	FaceAngle   float64 `json:"faceAngle,omitempty"`   // Face angle at impact in degrees (+ = open, - = closed)
+	FaceToPath  float64 `json:"faceToPath,omitempty"`  // Face to path relationship in degrees
+	AttackAngle float64 `json:"attackAngle,omitempty"` // Attack angle in degrees (+ = up, - = down)
+	DynamicLoft float64 `json:"dynamicLoft,omitempty"` // Dynamic loft at impact in degrees
+	SmashFactor float64 `json:"smashFactor,omitempty"` // Smash factor (ball speed / club speed)
+	LowPoint    float64 `json:"lowPoint,omitempty"`    // Low point position (inches before/after ball)
+	ClubType    string  `json:"clubType,omitempty"`    // Club name (e.g., "Driver", "7-iron")
 }
 
 // ShotResponse represents the response from POST /api/lm/shot-detected
