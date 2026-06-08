@@ -2,7 +2,7 @@
 export class ScreenManager {
     #pageTitles = {
         device: 'Device',
-        gspro: 'Open API',
+        integrations: 'Integrations',
         settings: 'Settings'
     };
 

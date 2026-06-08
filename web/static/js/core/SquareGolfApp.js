@@ -2,11 +2,10 @@
 import { EventBus } from './EventBus.js';
 import { WebSocketService } from '../services/WebSocketService.js';
 import { DeviceService } from '../services/DeviceService.js';
-import { GSProService } from '../services/GSProService.js';
 import { ApiClient } from '../services/ApiClient.js';
 import { AlignmentManager } from '../features/AlignmentManager.js';
 import { SettingsManager } from '../features/SettingsManager.js';
-import { CameraManager } from '../features/CameraManager.js';
+import { IntegrationsManager } from '../features/IntegrationsManager.js';
 import { ShotMonitor } from '../features/ShotMonitor.js';
 import { ToastManager } from '../ui/ToastManager.js';
 import { ScreenManager } from '../ui/ScreenManager.js';
@@ -24,12 +23,11 @@ export class SquareGolfApp {
         // Services
         this.ws = new WebSocketService(this.eventBus);
         this.deviceService = new DeviceService(this.api, this.eventBus);
-        this.gsproService = new GSProService(this.api, this.eventBus);
 
         // Features
         this.alignmentManager = new AlignmentManager(this.api, this.eventBus);
         this.settingsManager = new SettingsManager(this.api, this.eventBus);
-        this.cameraManager = new CameraManager(this.api, this.eventBus);
+        this.integrationsManager = new IntegrationsManager(this.api, this.toast);
         this.shotMonitor = new ShotMonitor(this.api, this.eventBus);
 
         // Local state
@@ -64,6 +62,7 @@ export class SquareGolfApp {
             this.setHidden(this.$('statusBar'), true);
             this.ws.connect();
             this.settingsManager.load();
+            this.integrationsManager.init();
         });
     }
 
@@ -85,16 +84,6 @@ export class SquareGolfApp {
         });
         this.eventBus.on('device:error', (msg) => this.toast.error(`Connection failed: ${msg}`));
         this.eventBus.on('device:status', (status) => this.updateDeviceStatus(status));
-
-        // Open API (GSPro Connect protocol) events
-        this.eventBus.on('gspro:connecting', () => {
-            this.toast.info('Open API connection initiated...');
-        });
-        this.eventBus.on('gspro:disconnecting', () => {
-            this.toast.info('Open API disconnection initiated...');
-        });
-        this.eventBus.on('gspro:error', (msg) => this.toast.error(`Open API: ${msg}`));
-        this.eventBus.on('gspro:status', (status) => this.updateGSProStatus(status));
 
         // Alignment events
         this.eventBus.on('alignment:saved', () => {
@@ -143,10 +132,6 @@ export class SquareGolfApp {
         // Settings events
         this.eventBus.on('settings:loaded', (settings) => this.applySettings(settings));
         this.eventBus.on('settings:error', (msg) => this.toast.error(`Failed to save settings: ${msg}`));
-
-        // Camera events
-        this.eventBus.on('camera:saved', () => this.toast.success('Camera settings saved successfully'));
-        this.eventBus.on('camera:error', (msg) => this.toast.error(`Failed to save camera config: ${msg}`));
     }
 
     setupEventListeners() {
@@ -159,7 +144,6 @@ export class SquareGolfApp {
 
         // Status bar navigation
         this.bind('statusDevice', 'click', () => this.screen.show('device'));
-        this.bind('statusGSPro', 'click', () => this.screen.show('gspro'));
         this.bind('statusBallReady', 'click', () => this.screen.show('device'));
 
         // Alignment panel controls
@@ -178,36 +162,8 @@ export class SquareGolfApp {
             }
         });
 
-        // Open API controls (GSPro Connect protocol)
-        this.bind('gsproConnectBtn', 'click', () => {
-            const config = this.getConnectionConfig('gspro', true);
-            if (!config) return;
-            const { ip, port } = config;
-            this.gsproService.connect(ip, port);
-        });
-        this.bind('gsproDisconnectBtn', 'click', () => {
-            this.gsproService.disconnect();
-        });
-
-        // Open API settings
-        this.bind('gsproIP', 'change', () => this.saveGSProConfig());
-        this.bind('gsproPort', 'change', () => this.saveGSProConfig());
-        this.bind('gsproAutoConnect', 'change', () => this.saveGSProConfig());
-        this.bind('gsproIP', 'input', () => this.clearFieldError('gsproIP'));
-        this.bind('gsproPort', 'input', () => this.clearFieldError('gsproPort'));
-
-        // Open API preset: fills the standard port, then persists
-        this.bind('openApiPreset', 'change', () => {
-            const preset = this.$('openApiPreset')?.value;
-            const portField = this.$('gsproPort');
-            if (portField && preset && preset !== 'custom') {
-                portField.value = preset;
-            }
-            this.saveGSProConfig();
-        });
-
-        // Camera controls
-        this.bind('cameraSaveBtn', 'click', () => this.cameraManager.save());
+        // Integrations are rendered and wired by IntegrationsManager from the
+        // backend manifest — no per-integration controls here.
 
         // Alignment controls
         this.bind('leftHandedBtn', 'click', () => this.handleHandednessChange('left'));
@@ -247,11 +203,8 @@ export class SquareGolfApp {
             case 'deviceStatus':
                 this.deviceService.updateStatus(message.data);
                 break;
-            case 'gsproStatus':
-                this.gsproService.updateStatus(message.data);
-                break;
-            case 'cameraConfig':
-                this.cameraManager.updateConfig(message.data);
+            case 'integrationStatus':
+                this.integrationsManager.updateStatus(message.data);
                 break;
             case 'alignmentData':
                 if (message.data) {
@@ -777,63 +730,6 @@ export class SquareGolfApp {
         this.alignmentManager.start();
     }
 
-    updateGSProStatus(status) {
-        this.updateGlobalConnectionIndicator('statusGSPro', status.connectionStatus);
-        this.updateConnectionPanel({
-            status,
-            statusElementId: 'gsproStatus',
-            errorElementId: 'gsproError',
-            connectBtnId: 'gsproConnectBtn',
-            disconnectBtnId: 'gsproDisconnectBtn',
-            ipFieldId: 'gsproIP',
-            portFieldId: 'gsproPort'
-        });
-    }
-
-    async saveGSProConfig() {
-        const config = this.getConnectionConfig('gspro', false);
-        if (!config) return;
-
-        const { ip, port } = config;
-        const autoConnect = this.$('gsproAutoConnect')?.checked;
-
-        await this.gsproService.saveConfig(ip, port, autoConnect);
-    }
-
-    getConnectionConfig(prefix, notifyOnError) {
-        const ipField = this.$(`${prefix}IP`);
-        const portField = this.$(`${prefix}Port`);
-
-        if (!ipField || !portField) return null;
-
-        const ip = ipField.value.trim();
-        const port = Number.parseInt(portField.value, 10);
-        let valid = true;
-
-        if (!ip) {
-            this.setFieldError(ipField.id);
-            valid = false;
-        } else {
-            this.clearFieldError(ipField.id);
-        }
-
-        if (!Number.isInteger(port) || port < 1 || port > 65535) {
-            this.setFieldError(portField.id);
-            valid = false;
-        } else {
-            this.clearFieldError(portField.id);
-        }
-
-        if (!valid) {
-            if (notifyOnError) {
-                this.toast.error('Enter a valid host and port before connecting.');
-            }
-            return null;
-        }
-
-        return { ip, port };
-    }
-
     setFieldError(fieldId) {
         const field = this.$(fieldId);
         if (field) {
@@ -934,37 +830,14 @@ export class SquareGolfApp {
     }
 
     applyFeatures() {
-        const cameraCard = this.$('cameraSettingsCard');
-        const cameraSaveBtn = this.$('cameraSaveBtn');
-        const cameraURL = this.$('cameraURL');
-        const cameraEnabled = this.$('cameraEnabled');
-        const cameraSupported = Boolean(this.features.externalCamera);
-
-        this.setHidden(cameraCard, !cameraSupported);
-
-        if (cameraSaveBtn) cameraSaveBtn.disabled = !cameraSupported;
-        if (cameraURL) cameraURL.disabled = !cameraSupported;
-        if (cameraEnabled) cameraEnabled.disabled = !cameraSupported;
+        // Integration availability (camera included) is now driven by the
+        // backend manifest list, so there is nothing feature-gated to toggle here.
     }
 
     applySettings(settings) {
         const spinMode = settings.spinMode || 'advanced';
         const spinModeRadio = document.querySelector(`input[name="spinMode"][value="${spinMode}"]`);
         if (spinModeRadio) spinModeRadio.checked = true;
-
-        const gsproIP = this.$('gsproIP');
-        const gsproPort = this.$('gsproPort');
-        const gsproAutoConnect = this.$('gsproAutoConnect');
-        if (gsproIP) gsproIP.value = settings.gsproIP || '127.0.0.1';
-        if (gsproPort) gsproPort.value = settings.gsproPort || 921;
-        if (gsproAutoConnect) gsproAutoConnect.checked = settings.gsproAutoConnect || false;
-
-        // Sync the Open API preset dropdown to the loaded port (known port -> preset, else custom)
-        const openApiPreset = this.$('openApiPreset');
-        if (openApiPreset) {
-            const port = String(settings.gsproPort || 921);
-            openApiPreset.value = (port === '921' || port === '999') ? port : 'custom';
-        }
 
         const omniSpeedUnit = this.$('omniSpeedUnit');
         const omniDistanceUnit = this.$('omniDistanceUnit');
