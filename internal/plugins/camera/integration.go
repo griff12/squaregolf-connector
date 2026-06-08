@@ -128,6 +128,10 @@ func (m *Manager) SetEnabled(enabled bool) {
 		log.Println("Camera integration enabled")
 	} else {
 		log.Println("Camera integration disabled")
+		// Clear the status so the UI card doesn't stay green after disable.
+		if m.host != nil {
+			m.host.ReportStatus(m.Name(), plugin.StatusDisconnected, nil)
+		}
 	}
 }
 

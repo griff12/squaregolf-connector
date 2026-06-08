@@ -202,10 +202,11 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 	}
 
 	// Setup GSPro integration if enabled
+	var registry *plugin.Registry
 	if config.EnableGSPro {
 		log.Println("Starting GSPro integration")
 		host := core.NewPluginHost(stateManager, launchMonitor)
-		registry := plugin.NewRegistry(host)
+		registry = plugin.NewRegistry(host)
 		registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
 		registry.StartAll(context.Background())
 		if c, ok := registry.Connectable("gspro"); ok {
@@ -222,6 +223,9 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 	log.Println("Shutting down...")
 
 	// Clean up
+	if registry != nil {
+		registry.StopAll()
+	}
 	bluetoothManager.DisconnectBluetooth()
 
 	// Give everything a moment to clean up
@@ -303,6 +307,7 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 				log.Printf("Warning: Could not stop web server cleanly: %v", err)
 			}
 
+			registry.StopAll()
 			bluetoothManager.DisconnectBluetooth()
 		})
 	}
