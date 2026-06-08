@@ -32,8 +32,6 @@ type AppConfig struct {
 	GSProIP              string
 	GSProPort            int
 	EnableGSPro          bool
-	InfiniteTeesIP       string
-	InfiniteTeesPort     int
 	EnableExternalCamera bool
 	SimulateOmni         bool
 }
@@ -372,34 +370,9 @@ func main() {
 	gsproIP := flag.String("gspro-ip", "127.0.0.1", "IP address of GSPro server")
 	gsproPort := flag.Int("gspro-port", 921, "Port of GSPro server")
 	enableGSPro := flag.Bool("enable-gspro", false, "Enable GSPro integration")
-	itIP := flag.String("it-ip", "127.0.0.1", "IP address of Infinite Tees server")
-	itPort := flag.Int("it-port", 999, "Port of Infinite Tees server")
 	enableExternalCamera := flag.Bool("enable-external-camera", false, "Enable external camera integration (experimental)")
 	simulateOmni := flag.Bool("omni", false, "Simulate an Omni device instead of Home (requires --mock simulate)")
 	flag.Parse()
-
-	// Load saved settings for defaults
-	savedSettings := appcfg.GetInstance().GetSettings()
-
-	itIPProvided := false
-	itPortProvided := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "it-ip" {
-			itIPProvided = true
-		} else if f.Name == "it-port" {
-			itPortProvided = true
-		}
-	})
-
-	// Create configuration - use saved settings as defaults for IT if not specified via CLI
-	infiniteTeesIP := *itIP
-	infiniteTeesPort := *itPort
-	if !itIPProvided && savedSettings.InfiniteTeesIP != "" {
-		infiniteTeesIP = savedSettings.InfiniteTeesIP
-	}
-	if !itPortProvided && savedSettings.InfiniteTeesPort != 0 {
-		infiniteTeesPort = savedSettings.InfiniteTeesPort
-	}
 
 	config := AppConfig{
 		UseMock:              core.MockMode(*useMock),
@@ -411,8 +384,6 @@ func main() {
 		GSProIP:              *gsproIP,
 		GSProPort:            *gsproPort,
 		EnableGSPro:          *enableGSPro,
-		InfiniteTeesIP:       infiniteTeesIP,
-		InfiniteTeesPort:     infiniteTeesPort,
 		EnableExternalCamera: *enableExternalCamera,
 		SimulateOmni:         *simulateOmni,
 	}

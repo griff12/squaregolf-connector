@@ -76,18 +76,12 @@ type DeviceStatus struct {
 }
 
 type AppSettings struct {
-	DeviceName              string `json:"deviceName"`
-	SpinMode                string `json:"spinMode"`
-	OmniSpeedUnit           string `json:"omniSpeedUnit"`
-	OmniDistanceUnit        string `json:"omniDistanceUnit"`
-	OmniGreenSpeed          int    `json:"omniGreenSpeed"`
-	OmniCarryAdjustment     int    `json:"omniCarryAdjustment"`
-	GSProIP                 string `json:"gsproIP"`
-	GSProPort               int    `json:"gsproPort"`
-	GSProAutoConnect        bool   `json:"gsproAutoConnect"`
-	InfiniteTeesIP          string `json:"infiniteTeesIP"`
-	InfiniteTeesPort        int    `json:"infiniteTeesPort"`
-	InfiniteTeesAutoConnect bool   `json:"infiniteTeesAutoConnect"`
+	DeviceName          string `json:"deviceName"`
+	SpinMode            string `json:"spinMode"`
+	OmniSpeedUnit       string `json:"omniSpeedUnit"`
+	OmniDistanceUnit    string `json:"omniDistanceUnit"`
+	OmniGreenSpeed      int    `json:"omniGreenSpeed"`
+	OmniCarryAdjustment int    `json:"omniCarryAdjustment"`
 }
 
 // NewServer builds the HTTP/WebSocket server over the already-assembled plugin
@@ -504,18 +498,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		settings := config.GetInstance().GetSettings()
 
 		appSettings := AppSettings{
-			DeviceName:              settings.DeviceName,
-			SpinMode:                settings.SpinMode,
-			OmniSpeedUnit:           settings.OmniSpeedUnit,
-			OmniDistanceUnit:        settings.OmniDistanceUnit,
-			OmniGreenSpeed:          settings.OmniGreenSpeed,
-			OmniCarryAdjustment:     settings.OmniCarryAdjustment,
-			GSProIP:                 settings.GSProIP,
-			GSProPort:               settings.GSProPort,
-			GSProAutoConnect:        settings.GSProAutoConnect,
-			InfiniteTeesIP:          settings.InfiniteTeesIP,
-			InfiniteTeesPort:        settings.InfiniteTeesPort,
-			InfiniteTeesAutoConnect: settings.InfiniteTeesAutoConnect,
+			DeviceName:          settings.DeviceName,
+			SpinMode:            settings.SpinMode,
+			OmniSpeedUnit:       settings.OmniSpeedUnit,
+			OmniDistanceUnit:    settings.OmniDistanceUnit,
+			OmniGreenSpeed:      settings.OmniGreenSpeed,
+			OmniCarryAdjustment: settings.OmniCarryAdjustment,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(appSettings)
@@ -608,60 +596,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 			cfg.SetOmniCarryAdjustment(value)
 			s.stateManager.SetOmniCarryAdjustment(&value)
-		}
-
-		if rawValue, ok := rawSettings["gsproIP"]; ok {
-			var value string
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproIP", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProIP(value)
-		}
-
-		if rawValue, ok := rawSettings["gsproPort"]; ok {
-			var value int
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproPort", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProPort(value)
-		}
-
-		if rawValue, ok := rawSettings["gsproAutoConnect"]; ok {
-			var value bool
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproAutoConnect", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProAutoConnect(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesIP"]; ok {
-			var value string
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesIP", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesIP(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesPort"]; ok {
-			var value int
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesPort", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesPort(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesAutoConnect"]; ok {
-			var value bool
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesAutoConnect", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesAutoConnect(value)
 		}
 
 		w.WriteHeader(http.StatusOK)
