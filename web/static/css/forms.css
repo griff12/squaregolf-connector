@@ -63,39 +63,6 @@
     cursor: not-allowed;
 }
 
-.input-field.error {
-    border-color: var(--color-danger);
-}
-
-.input-field.error:focus-visible {
-    box-shadow: var(--focus-ring-danger);
-}
-
-.input-field.success {
-    border-color: var(--color-success);
-}
-
-/* Input validation feedback */
-.field-feedback {
-    font-size: var(--font-xs);
-    margin-top: var(--spacing-xs);
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-}
-
-.field-feedback.error {
-    color: var(--color-danger);
-}
-
-.field-feedback.success {
-    color: var(--color-success);
-}
-
-.field-feedback .material-icons {
-    font-size: var(--font-base);
-}
-
 .input-group {
     display: flex;
     gap: var(--spacing-md);

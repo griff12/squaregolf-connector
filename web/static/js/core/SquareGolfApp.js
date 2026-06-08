@@ -203,14 +203,6 @@ export class SquareGolfApp {
             case 'integrationStatus':
                 this.integrationsManager.updateStatus(message.data);
                 break;
-            case 'alignmentData':
-                if (message.data) {
-                    this.alignmentManager.updateDisplay(
-                        message.data.alignmentAngle || 0,
-                        message.data.isAligned || false
-                    );
-                }
-                break;
             default:
                 console.log('Unknown WebSocket message type:', message.type);
         }
@@ -235,61 +227,6 @@ export class SquareGolfApp {
 
         element.classList.toggle('connected', isConnected);
         element.classList.toggle('disconnected', !isConnected);
-    }
-
-    updateGlobalConnectionIndicator(elementId, connectionStatus) {
-        this.updateBinaryIndicator(elementId, connectionStatus === 'connected');
-    }
-
-    updateConnectionPanel({
-        status,
-        statusElementId,
-        errorElementId,
-        connectBtnId,
-        disconnectBtnId,
-        ipFieldId,
-        portFieldId
-    }) {
-        const statusElement = this.$(statusElementId);
-        const errorElement = this.$(errorElementId);
-        const connectBtn = this.$(connectBtnId);
-        const disconnectBtn = this.$(disconnectBtnId);
-        const ipField = this.$(ipFieldId);
-        const portField = this.$(portFieldId);
-
-        if (statusElement) {
-            statusElement.className = 'status-value';
-            statusElement.classList.add(status.connectionStatus);
-        }
-
-        const isConnected = status.connectionStatus === 'connected';
-        const isConnecting = status.connectionStatus === 'connecting';
-        const isDisconnected = status.connectionStatus === 'disconnected';
-        const isError = status.connectionStatus === 'error';
-        const statusText = {
-            connected: 'Connected',
-            connecting: 'Connecting...',
-            disconnected: 'Disconnected',
-            error: 'Error'
-        };
-
-        if (statusElement) {
-            statusElement.textContent = statusText[status.connectionStatus] || 'Disconnected';
-        }
-
-        if (connectBtn) connectBtn.disabled = isConnected || isConnecting;
-        if (disconnectBtn) disconnectBtn.disabled = !isConnected;
-        if (ipField) ipField.disabled = isConnected || isConnecting;
-        if (portField) portField.disabled = isConnected || isConnecting;
-
-        if (errorElement) {
-            if (isError && status.lastError) {
-                errorElement.textContent = status.lastError;
-                this.setHidden(errorElement, false);
-            } else {
-                this.setHidden(errorElement, true);
-            }
-        }
     }
 
     updateDeviceControls({ canConnect, canDisconnect, showCalibrate, showDeviceInfo, errorMessage = '' }) {
@@ -725,20 +662,6 @@ export class SquareGolfApp {
         this.setAlignmentError('');
         this.setAlignmentBusy(true);
         this.alignmentManager.start();
-    }
-
-    setFieldError(fieldId) {
-        const field = this.$(fieldId);
-        if (field) {
-            field.classList.add('error');
-        }
-    }
-
-    clearFieldError(fieldId) {
-        const field = this.$(fieldId);
-        if (field) {
-            field.classList.remove('error');
-        }
     }
 
     updateAlignmentDisplay(angle, isAligned) {

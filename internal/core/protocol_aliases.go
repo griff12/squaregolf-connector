@@ -14,14 +14,10 @@ type (
 	DetectBallMode      = protocol.DetectBallMode
 	SpinMode            = protocol.SpinMode
 	ClubType            = protocol.ClubType
-	ShotType            = protocol.ShotType
 	LaunchMonitorStatus = protocol.LaunchMonitorStatus
 	DeviceType          = protocol.DeviceType
-	SensorData          = protocol.SensorData
 	BallMetrics         = protocol.BallMetrics
 	ClubMetrics         = protocol.ClubMetrics
-	AlignmentData       = protocol.AlignmentData
-	DeviceProfile       = protocol.DeviceProfile
 	InitOptions         = protocol.InitOptions
 	NamedCommand        = protocol.NamedCommand
 )
@@ -40,9 +36,6 @@ const (
 
 	Standard = protocol.Standard
 	Advanced = protocol.Advanced
-
-	ShotTypeFull = protocol.ShotTypeFull
-	ShotTypePutt = protocol.ShotTypePutt
 
 	LaunchMonitorStatusNone   = protocol.LaunchMonitorStatusNone
 	LaunchMonitorStatusIdle   = protocol.LaunchMonitorStatusIdle
@@ -83,12 +76,10 @@ var DetectDeviceType = protocol.DetectDeviceType
 
 // Parsers.
 var (
-	ParseSensorData              = protocol.ParseSensorData
-	ParseShotBallMetrics         = protocol.ParseShotBallMetrics
-	ApplyOmniBallValidityBitmask = protocol.ApplyOmniBallValidityBitmask
-	ParseShotClubMetrics         = protocol.ParseShotClubMetrics
-	ParseOmniShotClubMetrics     = protocol.ParseOmniShotClubMetrics
-	ParseAlignmentData           = protocol.ParseAlignmentData
+	ParseSensorData      = protocol.ParseSensorData
+	ParseShotBallMetrics = protocol.ParseShotBallMetrics
+	ParseShotClubMetrics = protocol.ParseShotClubMetrics
+	ParseAlignmentData   = protocol.ParseAlignmentData
 )
 
 // Command encoders.
@@ -98,8 +89,6 @@ var (
 	ClubCommand                           = protocol.ClubCommand
 	OmniClubCommand                       = protocol.OmniClubCommand
 	SwingStickCommand                     = protocol.SwingStickCommand
-	AlignmentCommand                      = protocol.AlignmentCommand
-	StartAlignmentCommand                 = protocol.StartAlignmentCommand
 	StopAlignmentCommand                  = protocol.StopAlignmentCommand
 	CancelAlignmentCommand                = protocol.CancelAlignmentCommand
 	RequestClubMetricsCommand             = protocol.RequestClubMetricsCommand

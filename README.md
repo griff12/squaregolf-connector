@@ -1,6 +1,6 @@
 # SquareGolf Connector
 
-An unofficial launch monitor connector for SquareGolf devices with GSPro integration.
+An unofficial launch monitor connector for SquareGolf devices with Open API (GSPro Connect) integration.
 
 ## Download And Run (macOS)
 
@@ -50,7 +50,7 @@ You usually only need to do this once.
 SquareGolf Connector connects to SquareGolf Bluetooth launch monitors and provides:
 
 - **Bluetooth connectivity** to SquareGolf devices
-- **GSPro integration** with automatic reconnection
+- **Open API integration** (GSPro, Infinite Tees, and compatible sims) with automatic reconnection
 - **Desktop window UI** powered by the existing web frontend
 - **External camera integration** (experimental)
 - **Persistent saved settings**
@@ -75,9 +75,9 @@ SquareGolf Connector connects to SquareGolf Bluetooth launch monitors and provid
 
 1. Launch `SquareGolf Connector.app`.
 2. Turn on your SquareGolf device.
-3. Open GSPro if you use it.
+3. Open your simulator (GSPro, Infinite Tees, ...) if you use one.
 4. In the app, connect to your device.
-5. If needed, connect GSPro from the app settings.
+5. If needed, connect your simulator from the Integrations screen (the "Open API" card — set its host/port).
 
 ## Troubleshooting
 

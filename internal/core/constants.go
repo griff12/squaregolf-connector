@@ -56,13 +56,6 @@ const (
 	// WindowTitle is the title shown in the window title bar
 	WindowTitle = AppName + " - Unofficial Launch Monitor Connector"
 
-	// Navigation screen names
-	ScreenDevice    = "Device"
-	ScreenAlignment = "Alignment"
-	ScreenGSPro     = "GSPro"
-	ScreenRange     = "Range"
-	ScreenSettings  = "Settings"
-
 	// BluetoothDevicePrefix is the prefix used to identify SquareGolf devices
 	BluetoothDevicePrefix = "SquareGolf"
 )
