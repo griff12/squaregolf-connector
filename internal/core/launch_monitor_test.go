@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+	"time"
 )
 
 func resetSingletonsForTest(t *testing.T) {
@@ -29,9 +30,58 @@ func newTestLaunchMonitor(t *testing.T) (*StateManager, *LaunchMonitor, *MockBlu
 func TestNewLaunchMonitor(t *testing.T) {
 	sm, lm, mockClient, _ := newTestLaunchMonitor(t)
 
-	if lm == nil || lm.stateManager != sm || lm.bluetoothClient != mockClient || lm.sequence != 0 {
+	if lm == nil || lm.stateManager != sm || lm.getClient() != mockClient || lm.sequence != 0 {
 		t.Error("LaunchMonitor not properly initialized")
 	}
+}
+
+// TestLaunchMonitorClientConcurrency exercises the atomic client pointer and the
+// rate-limited command queue under concurrent swap/teardown, as happens during a
+// reconnect. Run with -race to catch regressions in the client/queue lifecycle.
+func TestLaunchMonitorClientConcurrency(t *testing.T) {
+	_, lm, mockClient, _ := newTestLaunchMonitor(t)
+	mockClient.connected = true
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Swap the client and tear the queue down (mimics connect/disconnect churn).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				lm.UpdateBluetoothClient(mockClient)
+				lm.HandleBluetoothDisconnect()
+				lm.UpdateBluetoothClient(mockClient)
+			}
+		}
+	}()
+
+	// Concurrently read the client and push commands through the queue.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = lm.getClient()
+					_ = lm.SendCommand("110100")
+					lm.NotificationHandler("battery", []byte{50})
+				}
+			}
+		}()
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
 }
 
 func TestNotificationHandler_BatteryLevel(t *testing.T) {
@@ -1296,8 +1346,8 @@ func TestBuildOmniInitCommands_UsesConfiguredState(t *testing.T) {
 	}
 
 	for i, expected := range expectedCommands {
-		if commands[i].cmd != expected {
-			t.Fatalf("Expected Omni init command %d to be %s, got %s", i, expected, commands[i].cmd)
+		if commands[i].Hex != expected {
+			t.Fatalf("Expected Omni init command %d to be %s, got %s", i, expected, commands[i].Hex)
 		}
 	}
 }

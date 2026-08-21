@@ -13,9 +13,10 @@ import (
 
 	appcfg "github.com/brentyates/squaregolf-connector/internal/config"
 	"github.com/brentyates/squaregolf-connector/internal/core"
-	"github.com/brentyates/squaregolf-connector/internal/core/camera"
-	"github.com/brentyates/squaregolf-connector/internal/core/gspro"
 	"github.com/brentyates/squaregolf-connector/internal/logging"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
+	"github.com/brentyates/squaregolf-connector/internal/plugins/camera"
+	"github.com/brentyates/squaregolf-connector/internal/plugins/connectapi"
 	"github.com/brentyates/squaregolf-connector/internal/ui"
 	"github.com/brentyates/squaregolf-connector/internal/web"
 )
@@ -31,10 +32,36 @@ type AppConfig struct {
 	GSProIP              string
 	GSProPort            int
 	EnableGSPro          bool
-	InfiniteTeesIP       string
-	InfiniteTeesPort     int
 	EnableExternalCamera bool
 	SimulateOmni         bool
+}
+
+// seedIntegrationConfig applies a plugin's persisted generic config, falling
+// back to legacy typed settings when none has been saved yet.
+func seedIntegrationConfig(registry *plugin.Registry, name string, fallback map[string]any) {
+	cs, ok := registry.ConfigStore(name)
+	if !ok {
+		return
+	}
+	cfg := appcfg.GetInstance().GetIntegrationConfig(name)
+	if cfg == nil {
+		cfg = fallback
+	}
+	cs.Configure(cfg)
+}
+
+func legacyGSProConfig(config AppConfig, settings appcfg.Settings) map[string]any {
+	host := settings.GSProIP
+	port := settings.GSProPort
+	if config.EnableGSPro {
+		// Explicit CLI connection settings take precedence over saved legacy
+		// values, matching the pre-plugin behavior.
+		host = config.GSProIP
+		port = config.GSProPort
+	}
+	return map[string]any{
+		"host": host, "port": port, "autoConnect": settings.GSProAutoConnect,
+	}
 }
 
 // Initialize the backend services (Bluetooth, state manager, etc.)
@@ -187,11 +214,16 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 	}
 
 	// Setup GSPro integration if enabled
+	var registry *plugin.Registry
 	if config.EnableGSPro {
 		log.Println("Starting GSPro integration")
-		gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, config.GSProIP, config.GSProPort)
-		gsproIntegration.EnableAutoReconnect()
-		gsproIntegration.Start()
+		host := core.NewPluginHost(stateManager, launchMonitor)
+		registry = plugin.NewRegistry(host)
+		registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
+		registry.StartAll(context.Background())
+		if c, ok := registry.Connectable("gspro"); ok {
+			go c.BeginConnect(config.GSProIP, config.GSProPort)
+		}
 	}
 
 	// Wait for interrupt signal to gracefully shut down
@@ -203,6 +235,9 @@ func startCLI(config AppConfig, stateManager *core.StateManager, bluetoothManage
 	log.Println("Shutting down...")
 
 	// Clean up
+	if registry != nil {
+		registry.StopAll()
+	}
 	bluetoothManager.DisconnectBluetooth()
 
 	// Give everything a moment to clean up
@@ -218,36 +253,50 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 	// Apply loaded settings to state manager
 	appcfg.GetInstance().ApplyToStateManager(stateManager)
 
-	// Initialize camera manager only if external camera feature is enabled
-	var cameraManager *camera.Manager
+	// Composition root: assemble the plugin registry. This is the only place
+	// that knows the concrete plugin types. GSPro and InfiniteTees are the same
+	// config-driven Connect-API plugin; a third compatible system is one more
+	// registry line.
+	pluginHost := core.NewPluginHost(stateManager, launchMonitor)
+	registry := plugin.NewRegistry(pluginHost)
+	registry.Register(connectapi.New(connectapi.OpenAPI(), config.GSProIP, config.GSProPort))
 	if config.EnableExternalCamera {
-		cameraManager = camera.GetInstance(stateManager, settings.CameraURL, settings.CameraEnabled)
+		registry.Register(camera.New(camera.NewSwingCamVendor(settings.CameraURL), settings.CameraURL, settings.CameraEnabled))
 	}
 
-	// Create web server
-	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, cameraManager, config.GSProIP, config.GSProPort, config.InfiniteTeesIP, config.InfiniteTeesPort, config.EnableExternalCamera)
+	// Seed each plugin's config from persisted generic config, falling back to
+	// the legacy typed settings so existing installs keep their values.
+	seedIntegrationConfig(registry, "gspro", legacyGSProConfig(config, settings))
+	seedIntegrationConfig(registry, "camera", map[string]any{
+		"url": settings.CameraURL, "enabled": settings.CameraEnabled,
+	})
 
-	// Setup auto-connects based on settings
-	if config.EnableGSPro || settings.GSProAutoConnect {
-		gsproIP := config.GSProIP
-		gsproPort := config.GSProPort
-		if !config.EnableGSPro && settings.GSProAutoConnect {
-			gsproIP = settings.GSProIP
-			gsproPort = settings.GSProPort
+	registry.StartAll(context.Background())
+
+	// Create web server over the assembled registry
+	server := web.NewServer(stateManager, bluetoothManager, launchMonitor, registry)
+
+	// Auto-connect any Connectable plugin whose config asks for it.
+	for _, name := range registry.Names() {
+		c, ok := registry.Connectable(name)
+		if !ok {
+			continue
 		}
-		log.Printf("Auto-connecting to GSPro at %s:%d", gsproIP, gsproPort)
-		gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, gsproIP, gsproPort)
-		gsproIntegration.EnableAutoReconnect()
-		gsproIntegration.Start()
-		go gsproIntegration.Connect(gsproIP, gsproPort)
-	}
-
-	if settings.InfiniteTeesAutoConnect {
-		log.Printf("Auto-connecting to Infinite Tees at %s:%d", settings.InfiniteTeesIP, settings.InfiniteTeesPort)
-		itIntegration := server.GetInfiniteTeesIntegration()
-		itIntegration.EnableAutoReconnect()
-		itIntegration.Start()
-		go itIntegration.Connect(settings.InfiniteTeesIP, settings.InfiniteTeesPort)
+		cfg := map[string]any{}
+		if cs, ok := registry.ConfigStore(name); ok {
+			cfg = cs.Config()
+		}
+		auto, _ := cfg["autoConnect"].(bool)
+		if config.EnableGSPro && name == "gspro" {
+			auto = true
+		}
+		if !auto {
+			continue
+		}
+		addr, _ := cfg["host"].(string)
+		port, _ := cfg["port"].(int)
+		log.Printf("Auto-connecting %s at %s:%d", name, addr, port)
+		go c.BeginConnect(addr, port)
 	}
 
 	log.Printf("Auto-connecting to device: %s", settings.DeviceName)
@@ -268,6 +317,7 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 				log.Printf("Warning: Could not stop web server cleanly: %v", err)
 			}
 
+			registry.StopAll()
 			bluetoothManager.DisconnectBluetooth()
 		})
 	}
@@ -332,34 +382,9 @@ func main() {
 	gsproIP := flag.String("gspro-ip", "127.0.0.1", "IP address of GSPro server")
 	gsproPort := flag.Int("gspro-port", 921, "Port of GSPro server")
 	enableGSPro := flag.Bool("enable-gspro", false, "Enable GSPro integration")
-	itIP := flag.String("it-ip", "127.0.0.1", "IP address of Infinite Tees server")
-	itPort := flag.Int("it-port", 999, "Port of Infinite Tees server")
 	enableExternalCamera := flag.Bool("enable-external-camera", false, "Enable external camera integration (experimental)")
 	simulateOmni := flag.Bool("omni", false, "Simulate an Omni device instead of Home (requires --mock simulate)")
 	flag.Parse()
-
-	// Load saved settings for defaults
-	savedSettings := appcfg.GetInstance().GetSettings()
-
-	itIPProvided := false
-	itPortProvided := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "it-ip" {
-			itIPProvided = true
-		} else if f.Name == "it-port" {
-			itPortProvided = true
-		}
-	})
-
-	// Create configuration - use saved settings as defaults for IT if not specified via CLI
-	infiniteTeesIP := *itIP
-	infiniteTeesPort := *itPort
-	if !itIPProvided && savedSettings.InfiniteTeesIP != "" {
-		infiniteTeesIP = savedSettings.InfiniteTeesIP
-	}
-	if !itPortProvided && savedSettings.InfiniteTeesPort != 0 {
-		infiniteTeesPort = savedSettings.InfiniteTeesPort
-	}
 
 	config := AppConfig{
 		UseMock:              core.MockMode(*useMock),
@@ -371,8 +396,6 @@ func main() {
 		GSProIP:              *gsproIP,
 		GSProPort:            *gsproPort,
 		EnableGSPro:          *enableGSPro,
-		InfiniteTeesIP:       infiniteTeesIP,
-		InfiniteTeesPort:     infiniteTeesPort,
 		EnableExternalCamera: *enableExternalCamera,
 		SimulateOmni:         *simulateOmni,
 	}

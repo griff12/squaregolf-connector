@@ -22,13 +22,9 @@
                     <span class="material-icons">bluetooth</span>
                     Device
                 </button>
-                <button class="nav-button" data-screen="gspro">
-                    <span class="material-icons">computer</span>
-                    GSPro
-                </button>
-                <button class="nav-button" data-screen="infiniteTees">
-                    <span class="material-icons">golf_course</span>
-                    Infinite Tees
+                <button class="nav-button" data-screen="integrations">
+                    <span class="material-icons">extension</span>
+                    Integrations
                 </button>
                 <button class="nav-button" data-screen="settings">
                     <span class="material-icons">settings</span>
@@ -65,16 +61,6 @@
                 <div class="status-item" id="statusDevice">
                     <span class="status-icon material-icons">bluetooth</span>
                     <span class="status-label">Device</span>
-                    <span class="status-dot"></span>
-                </div>
-                <div class="status-item" id="statusGSPro">
-                    <span class="status-icon material-icons">computer</span>
-                    <span class="status-label">GSPro</span>
-                    <span class="status-dot"></span>
-                </div>
-                <div class="status-item" id="statusInfiniteTees">
-                    <span class="status-icon material-icons">golf_course</span>
-                    <span class="status-label">IT</span>
                     <span class="status-dot"></span>
                 </div>
                 <div class="status-item" id="statusBallReady">
@@ -440,66 +426,9 @@
             </div>
 
 
-            <!-- GSPro Screen -->
-            <div class="screen" id="gsproScreen">
-                <div class="card">
-                    <div class="card-content">
-                        <div class="error-message hidden" id="gsproError"></div>
-                        <div class="status-value disconnected" id="gsproStatus">Disconnected</div>
-
-                        <div class="button-group">
-                            <button class="btn btn-primary" id="gsproConnectBtn">Connect to GSPro</button>
-                            <button class="btn btn-secondary" id="gsproDisconnectBtn" disabled>Disconnect</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Troubleshooting</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="troubleshooting-info">
-                            <p><strong>If the launch monitor will not go into ball detection mode:</strong></p>
-                            <ol>
-                                <li>Try changing the club in GSPro</li>
-                                <li>If still not working, restart GSPconnect:
-                                    <ul>
-                                        <li>Go to Settings → System → Reset GSPro Connect</li>
-                                        <li>This app will automatically reconnect</li>
-                                    </ul>
-                                </li>
-                            </ol>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Infinite Tees Screen -->
-            <div class="screen" id="infiniteTeesScreen">
-                <div class="card">
-                    <div class="card-content">
-                        <div class="error-message hidden" id="infiniteTeesError"></div>
-                        <div class="status-value disconnected" id="infiniteTeesStatus">Disconnected</div>
-
-                        <div class="button-group">
-                            <button class="btn btn-primary" id="infiniteTeesConnectBtn">Connect to Infinite Tees</button>
-                            <button class="btn btn-secondary" id="infiniteTeesDisconnectBtn" disabled>Disconnect</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h3>About Infinite Tees</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="troubleshooting-info">
-                            <p>Infinite Tees is a golf simulator that supports the GSPro connector protocol.</p>
-                            <p><strong>Note:</strong> Only connect to one simulator at a time (either GSPro or Infinite Tees).</p>
-                        </div>
-                    </div>
-                </div>
+            <!-- Integrations Screen (rendered dynamically from /api/integrations) -->
+            <div class="screen" id="integrationsScreen">
+                <div id="integrationsContainer"></div>
             </div>
 
 
@@ -566,75 +495,6 @@
                                 <p class="helper-text">Percentage offset applied to carry distance. 0 uses the device default.</p>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h3>GSPro Settings</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="gsproAutoConnect">
-                                Connect to GSPro automatically
-                            </label>
-                            <p class="helper-text">When enabled, automatically connects to GSPro when the device connects.</p>
-                        </div>
-                        <div class="form-group">
-                            <label for="gsproIP">GSPro IP Address:</label>
-                            <input type="text" id="gsproIP" class="input-field" value="127.0.0.1">
-                        </div>
-                        <div class="form-group">
-                            <label for="gsproPort">GSPro Port:</label>
-                            <input type="number" id="gsproPort" class="input-field" value="921">
-                        </div>
-                        <p class="helper-text">These settings rarely need to be changed. Default is localhost (127.0.0.1) on port 921.</p>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Infinite Tees Settings</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="infiniteTeesAutoConnect">
-                                Connect to Infinite Tees automatically
-                            </label>
-                            <p class="helper-text">When enabled, automatically connects to Infinite Tees when the device connects.</p>
-                        </div>
-                        <div class="form-group">
-                            <label for="infiniteTeesIP">Infinite Tees IP Address:</label>
-                            <input type="text" id="infiniteTeesIP" class="input-field" value="127.0.0.1">
-                        </div>
-                        <div class="form-group">
-                            <label for="infiniteTeesPort">Infinite Tees Port:</label>
-                            <input type="number" id="infiniteTeesPort" class="input-field" value="999">
-                        </div>
-                        <p class="helper-text">Default is localhost (127.0.0.1) on port 999.</p>
-                    </div>
-                </div>
-
-                <div class="card" id="cameraSettingsCard">
-                    <div class="card-header">
-                        <h3>Camera Settings</h3>
-                    </div>
-                    <div class="card-content">
-                        <div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="cameraEnabled">
-                                Enable external camera integration
-                            </label>
-                            <p class="helper-text">When enabled, the connector will arm and update the external camera during ball-ready and shot events.</p>
-                        </div>
-                        <div class="form-group">
-                            <label for="cameraURL">Camera Base URL:</label>
-                            <input type="url" id="cameraURL" class="input-field" placeholder="http://camera-box.local:8080">
-                            <p class="helper-text">Example: `http://camera-box.local:8080`.</p>
-                        </div>
-                        <button class="btn btn-primary" id="cameraSaveBtn">Save Camera Settings</button>
                     </div>
                 </div>
 

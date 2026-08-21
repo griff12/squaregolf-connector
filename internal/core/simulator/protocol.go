@@ -1,7 +1,5 @@
 package simulator
 
-import "github.com/brentyates/squaregolf-connector/internal/core"
-
 type ConnectionStatus int
 
 const (
@@ -19,6 +17,4 @@ type Protocol interface {
 	OnDisconnected()
 	SetStatus(status ConnectionStatus)
 	SetError(err error)
-	GetStateManager() *core.StateManager
-	GetLaunchMonitor() *core.LaunchMonitor
 }

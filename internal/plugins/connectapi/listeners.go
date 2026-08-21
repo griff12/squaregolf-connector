@@ -1,16 +1,10 @@
-package gspro
+package connectapi
 
 import (
 	"log"
 
-	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
 )
-
-func (g *Integration) registerStateListeners() {
-	g.stateManager.RegisterBallReadyCallback(g.onBallReadyChanged)
-	g.stateManager.RegisterLastBallMetricsCallback(g.onLastBallMetricsChanged)
-	g.stateManager.RegisterLastClubMetricsCallback(g.onLastClubMetricsChanged)
-}
 
 func (g *Integration) onBallReadyChanged(oldValue, newValue bool) {
 	if oldValue == newValue {
@@ -35,11 +29,11 @@ func (g *Integration) onBallReadyChanged(oldValue, newValue bool) {
 	}
 
 	if err := g.sendData(emptyShotData); err != nil {
-		log.Printf("Error sending empty shot data to GSPro: %v", err)
+		log.Printf("[%s] Error sending empty shot data: %v", g.cfg.DisplayName, err)
 	}
 }
 
-func (g *Integration) onLastBallMetricsChanged(oldValue, newValue *core.BallMetrics) {
+func (g *Integration) onLastBallMetricsChanged(oldValue, newValue *protocol.BallMetrics) {
 	if oldValue == newValue {
 		return
 	}
@@ -52,13 +46,13 @@ func (g *Integration) onLastBallMetricsChanged(oldValue, newValue *core.BallMetr
 		return
 	}
 
-	gsproShotData := g.convertToGSProShotFormat(*newValue, true)
+	gsproShotData := g.convertToShotFormat(*newValue, true)
 	if err := g.sendData(gsproShotData); err != nil {
-		log.Printf("Error sending shot data to GSPro: %v", err)
+		log.Printf("[%s] Error sending shot data: %v", g.cfg.DisplayName, err)
 	}
 }
 
-func (g *Integration) onLastClubMetricsChanged(oldValue, newValue *core.ClubMetrics) {
+func (g *Integration) onLastClubMetricsChanged(oldValue, newValue *protocol.ClubMetrics) {
 	if oldValue == newValue {
 		return
 	}
@@ -81,21 +75,21 @@ func (g *Integration) onLastClubMetricsChanged(oldValue, newValue *core.ClubMetr
 			ClosureRate:          0,
 		}
 
-		gsproShotData := g.convertToGSProShotFormat(core.BallMetrics{}, false)
+		gsproShotData := g.convertToShotFormat(protocol.BallMetrics{}, false)
 		gsproShotData.ShotDataOptions.ContainsBallData = false
 		gsproShotData.ShotDataOptions.ContainsClubData = true
 		gsproShotData.ClubData = zeroedClubData
 		if err := g.sendData(gsproShotData); err != nil {
-			log.Printf("Error sending zeroed club data to GSPro: %v", err)
+			log.Printf("[%s] Error sending zeroed club data: %v", g.cfg.DisplayName, err)
 		}
 		return
 	}
 
-	gsproShotData := g.convertToGSProShotFormat(core.BallMetrics{}, false)
+	gsproShotData := g.convertToShotFormat(protocol.BallMetrics{}, false)
 	gsproShotData.ShotDataOptions.ContainsBallData = false
 	gsproShotData.ShotDataOptions.ContainsClubData = true
-	gsproShotData.ClubData = g.convertClubDataToGSPro(*newValue)
+	gsproShotData.ClubData = g.convertClubData(*newValue)
 	if err := g.sendData(gsproShotData); err != nil {
-		log.Printf("Error sending club data to GSPro: %v", err)
+		log.Printf("[%s] Error sending club data: %v", g.cfg.DisplayName, err)
 	}
 }

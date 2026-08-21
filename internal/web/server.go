@@ -14,28 +14,32 @@ import (
 
 	"github.com/brentyates/squaregolf-connector/internal/config"
 	"github.com/brentyates/squaregolf-connector/internal/core"
-	"github.com/brentyates/squaregolf-connector/internal/core/camera"
-	"github.com/brentyates/squaregolf-connector/internal/core/gspro"
-	"github.com/brentyates/squaregolf-connector/internal/core/infinitetees"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 )
 
 type Server struct {
-	stateManager            *core.StateManager
-	bluetoothManager        *core.BluetoothManager
-	launchMonitor           *core.LaunchMonitor
-	gsproIntegration        *gspro.Integration
-	infiniteTeesIntegration *infinitetees.Integration
-	cameraManager           *camera.Manager
-	enableExternalCamera    bool
-	upgrader                websocket.Upgrader
-	clients                 map[*websocket.Conn]chan []byte
-	clientsMu               sync.Mutex
-	broadcast               chan []byte
-	httpServer              *http.Server
-	httpServerMu            sync.Mutex
-	webRoot                 string
+	stateManager     *core.StateManager
+	bluetoothManager *core.BluetoothManager
+	launchMonitor    *core.LaunchMonitor
+	plugins          *plugin.Registry
+	upgrader         websocket.Upgrader
+	clients          map[*websocket.Conn]*wsClient
+	clientsMu        sync.Mutex
+	broadcast        chan []byte
+	httpServer       *http.Server
+	httpServerMu     sync.Mutex
+	webRoot          string
+}
+
+// wsClient is a single connected websocket peer. Its send channel is written by
+// the broadcaster and drained by a single per-connection writer goroutine. The
+// channel is never closed; the owning connection signals teardown by closing
+// done exactly once, so sends can never race with a close.
+type wsClient struct {
+	send chan []byte
+	done chan struct{}
 }
 
 type WSMessage struct {
@@ -71,64 +75,30 @@ type DeviceStatus struct {
 	BatteryCharging     *int                     `json:"batteryCharging"`
 }
 
-type GSProStatus struct {
-	ConnectionStatus string `json:"connectionStatus"`
-	IP               string `json:"ip"`
-	Port             int    `json:"port"`
-	AutoConnect      bool   `json:"autoConnect"`
-	LastError        string `json:"lastError"`
-}
-
-type InfiniteTeesStatus struct {
-	ConnectionStatus string `json:"connectionStatus"`
-	IP               string `json:"ip"`
-	Port             int    `json:"port"`
-	AutoConnect      bool   `json:"autoConnect"`
-	LastError        string `json:"lastError"`
-}
-
-type CameraConfig struct {
-	URL     string `json:"url"`
-	Enabled bool   `json:"enabled"`
-}
-
 type AppSettings struct {
-	DeviceName              string `json:"deviceName"`
-	SpinMode                string `json:"spinMode"`
-	OmniSpeedUnit           string `json:"omniSpeedUnit"`
-	OmniDistanceUnit        string `json:"omniDistanceUnit"`
-	OmniGreenSpeed          int    `json:"omniGreenSpeed"`
-	OmniCarryAdjustment     int    `json:"omniCarryAdjustment"`
-	GSProIP                 string `json:"gsproIP"`
-	GSProPort               int    `json:"gsproPort"`
-	GSProAutoConnect        bool   `json:"gsproAutoConnect"`
-	InfiniteTeesIP          string `json:"infiniteTeesIP"`
-	InfiniteTeesPort        int    `json:"infiniteTeesPort"`
-	InfiniteTeesAutoConnect bool   `json:"infiniteTeesAutoConnect"`
+	DeviceName          string `json:"deviceName"`
+	SpinMode            string `json:"spinMode"`
+	OmniSpeedUnit       string `json:"omniSpeedUnit"`
+	OmniDistanceUnit    string `json:"omniDistanceUnit"`
+	OmniGreenSpeed      int    `json:"omniGreenSpeed"`
+	OmniCarryAdjustment int    `json:"omniCarryAdjustment"`
 }
 
-type FeatureFlags struct {
-	ExternalCamera bool `json:"externalCamera"`
-}
-
-func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, cameraManager *camera.Manager, gsproIP string, gsproPort int, itIP string, itPort int, enableExternalCamera bool) *Server {
-	gsproIntegration := gspro.GetInstance(stateManager, launchMonitor, gsproIP, gsproPort)
-	itIntegration := infinitetees.GetInstance(stateManager, launchMonitor, itIP, itPort)
-
+// NewServer builds the HTTP/WebSocket server over the already-assembled plugin
+// registry. It does not import or construct any concrete plugin — those are
+// wired solely in the composition root (main).
+func NewServer(stateManager *core.StateManager, bluetoothManager *core.BluetoothManager, launchMonitor *core.LaunchMonitor, plugins *plugin.Registry) *Server {
 	server := &Server{
-		stateManager:            stateManager,
-		bluetoothManager:        bluetoothManager,
-		launchMonitor:           launchMonitor,
-		gsproIntegration:        gsproIntegration,
-		infiniteTeesIntegration: itIntegration,
-		cameraManager:           cameraManager,
-		enableExternalCamera:    enableExternalCamera,
+		stateManager:     stateManager,
+		bluetoothManager: bluetoothManager,
+		launchMonitor:    launchMonitor,
+		plugins:          plugins,
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return true
 			},
 		},
-		clients:   make(map[*websocket.Conn]chan []byte),
+		clients:   make(map[*websocket.Conn]*wsClient),
 		broadcast: make(chan []byte, 100),
 		webRoot:   resolveWebRoot(),
 	}
@@ -248,20 +218,9 @@ func (s *Server) setupCallbacks() {
 		s.broadcastDeviceStatus()
 	})
 
-	s.stateManager.RegisterGSProStatusCallback(func(oldValue, newValue core.GSProConnectionStatus) {
-		s.broadcastGSProStatus()
-	})
-
-	s.stateManager.RegisterInfiniteTeesStatusCallback(func(oldValue, newValue core.InfiniteTeesConnectionStatus) {
-		s.broadcastInfiniteTeesStatus()
-	})
-
-	s.stateManager.RegisterCameraURLCallback(func(oldValue, newValue *string) {
-		s.broadcastCameraConfig()
-	})
-
-	s.stateManager.RegisterCameraEnabledCallback(func(oldValue, newValue bool) {
-		s.broadcastCameraConfig()
+	// Generic, registry-driven integration status (drives the data-driven UI)
+	s.stateManager.RegisterIntegrationStatusCallback(func(name string, status core.IntegrationStatus) {
+		s.broadcastIntegration(name)
 	})
 
 	s.stateManager.RegisterIsAligningCallback(func(oldValue, newValue bool) {
@@ -292,26 +251,19 @@ func (s *Server) setupCallbacks() {
 func (s *Server) handleMessages() {
 	for message := range s.broadcast {
 		s.clientsMu.Lock()
-		clientCount := len(s.clients)
-		activeChannels := make([]chan []byte, 0, clientCount)
-		for _, clientChan := range s.clients {
-			activeChannels = append(activeChannels, clientChan)
+		activeClients := make([]*wsClient, 0, len(s.clients))
+		for _, client := range s.clients {
+			activeClients = append(activeClients, client)
 		}
 		s.clientsMu.Unlock()
 
-		for _, clientChan := range activeChannels {
-			func(ch chan []byte) {
-				defer func() {
-					if r := recover(); r != nil {
-						// Channel was closed by client disconnect, ignore panic
-					}
-				}()
-				select {
-				case ch <- message:
-				default:
-					log.Printf("WebSocket client buffer full, dropping message")
-				}
-			}(clientChan)
+		for _, client := range activeClients {
+			select {
+			case client.send <- message:
+			case <-client.done:
+			default:
+				log.Printf("WebSocket client buffer full, dropping message")
+			}
 		}
 	}
 }
@@ -320,26 +272,6 @@ func (s *Server) broadcastDeviceStatus() {
 	status := s.getDeviceStatus()
 	log.Printf("Broadcasting device status - BallDetected: %v, BallPosition: %+v", status.BallDetected, status.BallPosition)
 	msg := WSMessage{Type: "deviceStatus", Data: status}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
-	}
-}
-
-func (s *Server) broadcastGSProStatus() {
-	status := s.getGSProStatus()
-	msg := WSMessage{Type: "gsproStatus", Data: status}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
-	}
-}
-
-func (s *Server) broadcastInfiniteTeesStatus() {
-	status := s.getInfiniteTeesStatus()
-	msg := WSMessage{Type: "infiniteTeesStatus", Data: status}
 	data, _ := json.Marshal(msg)
 	select {
 	case s.broadcast <- data:
@@ -394,63 +326,6 @@ func (s *Server) getDeviceStatus() DeviceStatus {
 	}
 }
 
-func (s *Server) getGSProStatus() GSProStatus {
-	var lastErrorStr string
-	if err := s.stateManager.GetGSProError(); err != nil {
-		lastErrorStr = err.Error()
-	}
-
-	connectionStatus := "disconnected"
-	switch s.stateManager.GetGSProStatus() {
-	case core.GSProStatusConnected:
-		connectionStatus = "connected"
-	case core.GSProStatusConnecting:
-		connectionStatus = "connecting"
-	case core.GSProStatusError:
-		connectionStatus = "error"
-	}
-
-	// Get current GSPro settings from integration and config
-	ip, port := s.gsproIntegration.GetConnectionInfo()
-	settings := config.GetInstance().GetSettings()
-
-	return GSProStatus{
-		ConnectionStatus: connectionStatus,
-		IP:               ip,
-		Port:             port,
-		AutoConnect:      settings.GSProAutoConnect,
-		LastError:        lastErrorStr,
-	}
-}
-
-func (s *Server) getInfiniteTeesStatus() InfiniteTeesStatus {
-	var lastErrorStr string
-	if err := s.stateManager.GetInfiniteTeesError(); err != nil {
-		lastErrorStr = err.Error()
-	}
-
-	connectionStatus := "disconnected"
-	switch s.stateManager.GetInfiniteTeesStatus() {
-	case core.InfiniteTeesStatusConnected:
-		connectionStatus = "connected"
-	case core.InfiniteTeesStatusConnecting:
-		connectionStatus = "connecting"
-	case core.InfiniteTeesStatusError:
-		connectionStatus = "error"
-	}
-
-	ip, port := s.infiniteTeesIntegration.GetConnectionInfo()
-	settings := config.GetInstance().GetSettings()
-
-	return InfiniteTeesStatus{
-		ConnectionStatus: connectionStatus,
-		IP:               ip,
-		Port:             port,
-		AutoConnect:      settings.InfiniteTeesAutoConnect,
-		LastError:        lastErrorStr,
-	}
-}
-
 func (s *Server) Start(port int) error {
 	router := mux.NewRouter()
 
@@ -472,26 +347,16 @@ func (s *Server) Start(port int) error {
 	api.HandleFunc("/device/disconnect", s.handleDeviceDisconnect).Methods("POST")
 	api.HandleFunc("/device/practice", s.handlePracticeMode).Methods("POST")
 
-	// GSPro endpoints
-	api.HandleFunc("/gspro/status", s.handleGSProStatus).Methods("GET")
-	api.HandleFunc("/gspro/connect", s.handleGSProConnect).Methods("POST")
-	api.HandleFunc("/gspro/disconnect", s.handleGSProDisconnect).Methods("POST")
-	api.HandleFunc("/gspro/config", s.handleGSProConfig).Methods("GET", "POST")
-
-	// Infinite Tees endpoints
-	api.HandleFunc("/infinitetees/status", s.handleInfiniteTeesStatus).Methods("GET")
-	api.HandleFunc("/infinitetees/connect", s.handleInfiniteTeesConnect).Methods("POST")
-	api.HandleFunc("/infinitetees/disconnect", s.handleInfiniteTeesDisconnect).Methods("POST")
-	api.HandleFunc("/infinitetees/config", s.handleInfiniteTeesConfig).Methods("GET", "POST")
-
-	// Camera endpoints
-	api.HandleFunc("/camera/config", s.handleCameraConfig).Methods("GET", "POST")
+	// Generic, registry-driven integration endpoints (data-driven UI)
+	api.HandleFunc("/integrations", s.handleIntegrations).Methods("GET")
+	api.HandleFunc("/integrations/{name}/connect", s.handleIntegrationConnect).Methods("POST")
+	api.HandleFunc("/integrations/{name}/disconnect", s.handleIntegrationDisconnect).Methods("POST")
+	api.HandleFunc("/integrations/{name}/config", s.handleIntegrationConfig).Methods("GET", "POST")
 
 	// Settings endpoints
 	api.HandleFunc("/settings", s.handleSettings).Methods("GET", "POST")
 
 	// Feature flags endpoint
-	api.HandleFunc("/features", s.handleFeatures).Methods("GET")
 
 	// Alignment endpoints
 	api.HandleFunc("/alignment/start", s.handleAlignmentStart).Methods("POST")
@@ -547,30 +412,38 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientChan := make(chan []byte, 100)
+	client := &wsClient{
+		send: make(chan []byte, 100),
+		done: make(chan struct{}),
+	}
 
 	s.clientsMu.Lock()
-	s.clients[conn] = clientChan
+	s.clients[conn] = client
 	s.clientsMu.Unlock()
 
 	go func() {
 		defer conn.Close()
-		for msg := range clientChan {
-			conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				log.Printf("WebSocket send error: %v, closing client", err)
+		for {
+			select {
+			case msg := <-client.send:
+				conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+					log.Printf("WebSocket send error: %v, closing client", err)
+					return
+				}
+			case <-client.done:
 				return
 			}
 		}
 	}()
 
-	s.sendInitialStatus(clientChan)
+	s.sendInitialStatus(client)
 
 	defer func() {
 		s.clientsMu.Lock()
-		if ch, exists := s.clients[conn]; exists {
+		if _, exists := s.clients[conn]; exists {
 			delete(s.clients, conn)
-			close(ch)
+			close(client.done)
 		}
 		s.clientsMu.Unlock()
 		conn.Close()
@@ -584,30 +457,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) sendInitialStatus(clientChan chan []byte) {
-	// Send device status
-	deviceStatus := s.getDeviceStatus()
-	msg := WSMessage{Type: "deviceStatus", Data: deviceStatus}
-	data, _ := json.Marshal(msg)
-	clientChan <- data
+func (s *Server) sendInitialStatus(client *wsClient) {
+	send := func(msgType string, payload interface{}) {
+		data, _ := json.Marshal(WSMessage{Type: msgType, Data: payload})
+		select {
+		case client.send <- data:
+		case <-client.done:
+		}
+	}
 
-	// Send GSPro status
-	gsproStatus := s.getGSProStatus()
-	msg = WSMessage{Type: "gsproStatus", Data: gsproStatus}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
-
-	// Send Infinite Tees status
-	itStatus := s.getInfiniteTeesStatus()
-	msg = WSMessage{Type: "infiniteTeesStatus", Data: itStatus}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
-
-	// Send camera config
-	cameraConfig := s.getCameraConfig()
-	msg = WSMessage{Type: "cameraConfig", Data: cameraConfig}
-	data, _ = json.Marshal(msg)
-	clientChan <- data
+	send("deviceStatus", s.getDeviceStatus())
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {
@@ -634,157 +493,17 @@ func (s *Server) handleDeviceDisconnect(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleGSProStatus(w http.ResponseWriter, r *http.Request) {
-	status := s.getGSProStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) handleGSProConnect(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		IP   string `json:"ip"`
-		Port int    `json:"port"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	go func() {
-		s.gsproIntegration.ResetReconnectionState()
-		s.gsproIntegration.EnableAutoReconnect()
-		s.gsproIntegration.Start()
-		s.gsproIntegration.Connect(req.IP, req.Port)
-	}()
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleGSProDisconnect(w http.ResponseWriter, r *http.Request) {
-	go func() {
-		s.gsproIntegration.DisableAutoReconnect()
-		s.gsproIntegration.Disconnect()
-	}()
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleGSProConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		settings := config.GetInstance().GetSettings()
-		configData := struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}{
-			IP:          settings.GSProIP,
-			Port:        settings.GSProPort,
-			AutoConnect: settings.GSProAutoConnect,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(configData)
-	} else {
-		var configData struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		cfg := config.GetInstance()
-		cfg.SetGSProIP(configData.IP)
-		cfg.SetGSProPort(configData.Port)
-		cfg.SetGSProAutoConnect(configData.AutoConnect)
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (s *Server) handleInfiniteTeesStatus(w http.ResponseWriter, r *http.Request) {
-	status := s.getInfiniteTeesStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
-}
-
-func (s *Server) handleInfiniteTeesConnect(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		IP   string `json:"ip"`
-		Port int    `json:"port"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	go func() {
-		s.infiniteTeesIntegration.ResetReconnectionState()
-		s.infiniteTeesIntegration.EnableAutoReconnect()
-		s.infiniteTeesIntegration.Start()
-		s.infiniteTeesIntegration.Connect(req.IP, req.Port)
-	}()
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleInfiniteTeesDisconnect(w http.ResponseWriter, r *http.Request) {
-	go func() {
-		s.infiniteTeesIntegration.DisableAutoReconnect()
-		s.infiniteTeesIntegration.Disconnect()
-	}()
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleInfiniteTeesConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "GET" {
-		settings := config.GetInstance().GetSettings()
-		configData := struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}{
-			IP:          settings.InfiniteTeesIP,
-			Port:        settings.InfiniteTeesPort,
-			AutoConnect: settings.InfiniteTeesAutoConnect,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(configData)
-	} else {
-		var configData struct {
-			IP          string `json:"ip"`
-			Port        int    `json:"port"`
-			AutoConnect bool   `json:"autoConnect"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&configData); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		cfg := config.GetInstance()
-		cfg.SetInfiniteTeesIP(configData.IP)
-		cfg.SetInfiniteTeesPort(configData.Port)
-		cfg.SetInfiniteTeesAutoConnect(configData.AutoConnect)
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		settings := config.GetInstance().GetSettings()
 
 		appSettings := AppSettings{
-			DeviceName:              settings.DeviceName,
-			SpinMode:                settings.SpinMode,
-			OmniSpeedUnit:           settings.OmniSpeedUnit,
-			OmniDistanceUnit:        settings.OmniDistanceUnit,
-			OmniGreenSpeed:          settings.OmniGreenSpeed,
-			OmniCarryAdjustment:     settings.OmniCarryAdjustment,
-			GSProIP:                 settings.GSProIP,
-			GSProPort:               settings.GSProPort,
-			GSProAutoConnect:        settings.GSProAutoConnect,
-			InfiniteTeesIP:          settings.InfiniteTeesIP,
-			InfiniteTeesPort:        settings.InfiniteTeesPort,
-			InfiniteTeesAutoConnect: settings.InfiniteTeesAutoConnect,
+			DeviceName:          settings.DeviceName,
+			SpinMode:            settings.SpinMode,
+			OmniSpeedUnit:       settings.OmniSpeedUnit,
+			OmniDistanceUnit:    settings.OmniDistanceUnit,
+			OmniGreenSpeed:      settings.OmniGreenSpeed,
+			OmniCarryAdjustment: settings.OmniCarryAdjustment,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(appSettings)
@@ -879,129 +598,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			s.stateManager.SetOmniCarryAdjustment(&value)
 		}
 
-		if rawValue, ok := rawSettings["gsproIP"]; ok {
-			var value string
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproIP", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProIP(value)
-		}
-
-		if rawValue, ok := rawSettings["gsproPort"]; ok {
-			var value int
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproPort", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProPort(value)
-		}
-
-		if rawValue, ok := rawSettings["gsproAutoConnect"]; ok {
-			var value bool
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid gsproAutoConnect", http.StatusBadRequest)
-				return
-			}
-			cfg.SetGSProAutoConnect(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesIP"]; ok {
-			var value string
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesIP", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesIP(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesPort"]; ok {
-			var value int
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesPort", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesPort(value)
-		}
-
-		if rawValue, ok := rawSettings["infiniteTeesAutoConnect"]; ok {
-			var value bool
-			if err := json.Unmarshal(rawValue, &value); err != nil {
-				http.Error(w, "Invalid infiniteTeesAutoConnect", http.StatusBadRequest)
-				return
-			}
-			cfg.SetInfiniteTeesAutoConnect(value)
-		}
-
 		w.WriteHeader(http.StatusOK)
 	}
-}
-
-func (s *Server) getCameraConfig() CameraConfig {
-	url := "http://localhost:5000"
-	if cameraURL := s.stateManager.GetCameraURL(); cameraURL != nil {
-		url = *cameraURL
-	}
-
-	enabled := s.stateManager.GetCameraEnabled()
-
-	return CameraConfig{
-		URL:     url,
-		Enabled: enabled,
-	}
-}
-
-func (s *Server) handleCameraConfig(w http.ResponseWriter, r *http.Request) {
-	// Return 404 if external camera feature is disabled
-	if !s.enableExternalCamera {
-		http.Error(w, "External camera feature not enabled", http.StatusNotFound)
-		return
-	}
-
-	if r.Method == "GET" {
-		cameraConfig := s.getCameraConfig()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cameraConfig)
-	} else {
-		var cameraConfig CameraConfig
-		if err := json.NewDecoder(r.Body).Decode(&cameraConfig); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		// Save camera settings to config
-		cfg := config.GetInstance()
-		cfg.SetCameraURL(cameraConfig.URL)
-		cfg.SetCameraEnabled(cameraConfig.Enabled)
-
-		// Update camera URL and enabled state in state manager
-		s.stateManager.SetCameraURL(&cameraConfig.URL)
-		s.stateManager.SetCameraEnabled(cameraConfig.Enabled)
-
-		// Update camera manager
-		s.cameraManager.SetBaseURL(cameraConfig.URL)
-		s.cameraManager.SetEnabled(cameraConfig.Enabled)
-
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func (s *Server) broadcastCameraConfig() {
-	config := s.getCameraConfig()
-	msg := WSMessage{Type: "cameraConfig", Data: config}
-	data, _ := json.Marshal(msg)
-	select {
-	case s.broadcast <- data:
-	default:
-	}
-}
-
-func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request) {
-	features := FeatureFlags{
-		ExternalCamera: s.enableExternalCamera,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(features)
 }
 
 func (s *Server) handleAlignmentStart(w http.ResponseWriter, r *http.Request) {
@@ -1056,10 +654,6 @@ func (s *Server) handleAlignmentHandedness(w http.ResponseWriter, r *http.Reques
 	s.stateManager.SetHandedness(&handedness)
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) GetInfiniteTeesIntegration() *infinitetees.Integration {
-	return s.infiniteTeesIntegration
 }
 
 func (s *Server) handlePracticeMode(w http.ResponseWriter, r *http.Request) {

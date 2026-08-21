@@ -9,22 +9,24 @@ import (
 	"github.com/brentyates/squaregolf-connector/internal/core"
 )
 
-// Settings represents all persisted application settings
+// Settings represents all persisted application settings. The typed GSPro and
+// Camera fields are retained only as a one-time migration seed for the generic
+// per-plugin Integrations map (see main.seedIntegrationConfig).
 type Settings struct {
-	DeviceName              string `json:"deviceName"`
-	SpinMode                string `json:"spinMode"`
-	OmniSpeedUnit           string `json:"omniSpeedUnit"`
-	OmniDistanceUnit        string `json:"omniDistanceUnit"`
-	OmniGreenSpeed          int    `json:"omniGreenSpeed"`
-	OmniCarryAdjustment     int    `json:"omniCarryAdjustment"`
-	GSProIP                 string `json:"gsproIP"`
-	GSProPort               int    `json:"gsproPort"`
-	GSProAutoConnect        bool   `json:"gsproAutoConnect"`
-	InfiniteTeesIP          string `json:"infiniteTeesIP"`
-	InfiniteTeesPort        int    `json:"infiniteTeesPort"`
-	InfiniteTeesAutoConnect bool   `json:"infiniteTeesAutoConnect"`
-	CameraURL               string `json:"cameraURL"`
-	CameraEnabled           bool   `json:"cameraEnabled"`
+	DeviceName          string `json:"deviceName"`
+	SpinMode            string `json:"spinMode"`
+	OmniSpeedUnit       string `json:"omniSpeedUnit"`
+	OmniDistanceUnit    string `json:"omniDistanceUnit"`
+	OmniGreenSpeed      int    `json:"omniGreenSpeed"`
+	OmniCarryAdjustment int    `json:"omniCarryAdjustment"`
+	GSProIP             string `json:"gsproIP"`
+	GSProPort           int    `json:"gsproPort"`
+	GSProAutoConnect    bool   `json:"gsproAutoConnect"`
+	CameraURL           string `json:"cameraURL"`
+	CameraEnabled       bool   `json:"cameraEnabled"`
+	// Integrations holds generic, per-plugin config keyed by plugin name. New
+	// plugins persist here without adding typed fields above.
+	Integrations map[string]map[string]any `json:"integrations,omitempty"`
 }
 
 // Manager handles loading and saving configuration
@@ -67,20 +69,17 @@ func (m *Manager) initialize() {
 
 	// Set default settings
 	m.settings = Settings{
-		DeviceName:              "",
-		SpinMode:                "advanced",
-		OmniSpeedUnit:           "mps",
-		OmniDistanceUnit:        "meters",
-		OmniGreenSpeed:          10,
-		OmniCarryAdjustment:     0,
-		GSProIP:                 "127.0.0.1",
-		GSProPort:               921,
-		GSProAutoConnect:        false,
-		InfiniteTeesIP:          "127.0.0.1",
-		InfiniteTeesPort:        999,
-		InfiniteTeesAutoConnect: false,
-		CameraURL:               "http://localhost:5000",
-		CameraEnabled:           false,
+		DeviceName:          "",
+		SpinMode:            "advanced",
+		OmniSpeedUnit:       "mps",
+		OmniDistanceUnit:    "meters",
+		OmniGreenSpeed:      10,
+		OmniCarryAdjustment: 0,
+		GSProIP:             "127.0.0.1",
+		GSProPort:           921,
+		GSProAutoConnect:    false,
+		CameraURL:           "http://localhost:5000",
+		CameraEnabled:       false,
 	}
 
 	// Try to load existing settings
@@ -186,58 +185,23 @@ func (m *Manager) SetOmniCarryAdjustment(adjustment int) error {
 	return m.Save()
 }
 
-func (m *Manager) SetGSProIP(ip string) error {
-	m.mu.Lock()
-	m.settings.GSProIP = ip
-	m.mu.Unlock()
-	return m.Save()
+// GetIntegrationConfig returns the persisted generic config for a plugin, or nil.
+func (m *Manager) GetIntegrationConfig(name string) map[string]any {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.settings.Integrations == nil {
+		return nil
+	}
+	return m.settings.Integrations[name]
 }
 
-func (m *Manager) SetGSProPort(port int) error {
+// SetIntegrationConfig persists the generic config for a plugin and saves.
+func (m *Manager) SetIntegrationConfig(name string, cfg map[string]any) error {
 	m.mu.Lock()
-	m.settings.GSProPort = port
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetGSProAutoConnect(autoConnect bool) error {
-	m.mu.Lock()
-	m.settings.GSProAutoConnect = autoConnect
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetInfiniteTeesIP(ip string) error {
-	m.mu.Lock()
-	m.settings.InfiniteTeesIP = ip
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetInfiniteTeesPort(port int) error {
-	m.mu.Lock()
-	m.settings.InfiniteTeesPort = port
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetInfiniteTeesAutoConnect(autoConnect bool) error {
-	m.mu.Lock()
-	m.settings.InfiniteTeesAutoConnect = autoConnect
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetCameraURL(url string) error {
-	m.mu.Lock()
-	m.settings.CameraURL = url
-	m.mu.Unlock()
-	return m.Save()
-}
-
-func (m *Manager) SetCameraEnabled(enabled bool) error {
-	m.mu.Lock()
-	m.settings.CameraEnabled = enabled
+	if m.settings.Integrations == nil {
+		m.settings.Integrations = make(map[string]map[string]any)
+	}
+	m.settings.Integrations[name] = cfg
 	m.mu.Unlock()
 	return m.Save()
 }
@@ -259,8 +223,4 @@ func (m *Manager) ApplyToStateManager(stateManager *core.StateManager) {
 	stateManager.SetOmniDistanceUnit(&m.settings.OmniDistanceUnit)
 	stateManager.SetOmniGreenSpeed(&m.settings.OmniGreenSpeed)
 	stateManager.SetOmniCarryAdjustment(&m.settings.OmniCarryAdjustment)
-
-	// Apply camera settings
-	stateManager.SetCameraURL(&m.settings.CameraURL)
-	stateManager.SetCameraEnabled(m.settings.CameraEnabled)
 }

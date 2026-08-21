@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log"
 	"sync"
 )
 
@@ -26,17 +27,11 @@ type AppState struct {
 	Club                *ClubType
 	ClubName            *string // Human-readable club name from GSPro (e.g., "Driver", "7-iron")
 	Handedness          *HandednessType
-	GSProStatus         GSProConnectionStatus
-	GSProError          error
-	InfiniteTeesStatus  InfiniteTeesConnectionStatus
-	InfiniteTeesError   error
 	SpinMode            *SpinMode
 	OmniSpeedUnit       *string
 	OmniDistanceUnit    *string
 	OmniGreenSpeed      *int
 	OmniCarryAdjustment *int
-	CameraURL           *string
-	CameraEnabled       bool
 	IsAligning          bool    // Whether alignment mode UI is active
 	AlignmentAngle      float64 // Current aim angle in degrees (left negative, right positive)
 	IsAligned           bool    // Whether device is currently aligned (within tolerance)
@@ -55,6 +50,21 @@ type AppState struct {
 // StateCallback is a generic type for state change callbacks
 type StateCallback[T any] func(oldValue, newValue T)
 
+// notifyCallbacks invokes each callback, isolating panics so a single faulty
+// observer cannot crash the process or abort the rest of the fan-out.
+func notifyCallbacks[T any](callbacks []StateCallback[T], oldValue, newValue T) {
+	for _, callback := range callbacks {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("state callback panicked: %v", r)
+				}
+			}()
+			callback(oldValue, newValue)
+		}()
+	}
+}
+
 // StateManager manages the application state with type safety
 type StateManager struct {
 	state     AppState
@@ -71,17 +81,11 @@ type StateManager struct {
 		LastError           []StateCallback[error]
 		Club                []StateCallback[*ClubType]
 		Handedness          []StateCallback[*HandednessType]
-		GSProStatus         []StateCallback[GSProConnectionStatus]
-		GSProError          []StateCallback[error]
-		InfiniteTeesStatus  []StateCallback[InfiniteTeesConnectionStatus]
-		InfiniteTeesError   []StateCallback[error]
 		SpinMode            []StateCallback[*SpinMode]
 		OmniSpeedUnit       []StateCallback[*string]
 		OmniDistanceUnit    []StateCallback[*string]
 		OmniGreenSpeed      []StateCallback[*int]
 		OmniCarryAdjustment []StateCallback[*int]
-		CameraURL           []StateCallback[*string]
-		CameraEnabled       []StateCallback[bool]
 		IsAligning          []StateCallback[bool]
 		AlignmentAngle      []StateCallback[float64]
 		IsAligned           []StateCallback[bool]
@@ -96,7 +100,9 @@ type StateManager struct {
 		CapacitorReady      []StateCallback[bool]
 		BatteryCharging     []StateCallback[*int]
 	}
-	mu sync.RWMutex
+	integrationStatuses        map[string]IntegrationStatus
+	integrationStatusCallbacks []func(name string, status IntegrationStatus)
+	mu                         sync.RWMutex
 }
 
 var (
@@ -115,15 +121,10 @@ func GetInstance() *StateManager {
 
 // initialize sets up the default state values
 func (sm *StateManager) initialize() {
-	defaultCameraURL := "http://localhost:5000"
 	sm.state = AppState{
 		ConnectionStatus:    ConnectionStatusDisconnected,
 		BallDetected:        false,
 		BallReady:           false,
-		GSProStatus:         GSProStatusDisconnected,
-		InfiniteTeesStatus:  InfiniteTeesStatusDisconnected,
-		CameraURL:           &defaultCameraURL,
-		CameraEnabled:       false,
 		IsAligning:          false,
 		AlignmentAngle:      0.0,
 		IsAligned:           false,
@@ -147,9 +148,7 @@ func (sm *StateManager) SetDeviceDisplayName(value *string) {
 	callbacks := sm.callbacks.DeviceDisplayName
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetConnectionStatus returns the connection status
@@ -167,9 +166,7 @@ func (sm *StateManager) SetConnectionStatus(value ConnectionStatus) {
 	callbacks := sm.callbacks.ConnectionStatus
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetBatteryLevel returns the battery level
@@ -187,9 +184,7 @@ func (sm *StateManager) SetBatteryLevel(value *int) {
 	callbacks := sm.callbacks.BatteryLevel
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetBallDetected returns whether a ball is detected
@@ -207,9 +202,7 @@ func (sm *StateManager) SetBallDetected(value bool) {
 	callbacks := sm.callbacks.BallDetected
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetBallReady returns whether a ball is ready
@@ -227,9 +220,7 @@ func (sm *StateManager) SetBallReady(value bool) {
 	callbacks := sm.callbacks.BallReady
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetBallPosition returns the ball position
@@ -247,9 +238,7 @@ func (sm *StateManager) SetBallPosition(value *BallPosition) {
 	callbacks := sm.callbacks.BallPosition
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetLastBallMetrics returns the last ball metrics
@@ -267,9 +256,7 @@ func (sm *StateManager) SetLastBallMetrics(value *BallMetrics) {
 	callbacks := sm.callbacks.LastBallMetrics
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetLastClubMetrics returns the last club metrics
@@ -287,9 +274,7 @@ func (sm *StateManager) SetLastClubMetrics(value *ClubMetrics) {
 	callbacks := sm.callbacks.LastClubMetrics
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetLaunchMonitorStatus returns the current launch monitor status.
@@ -307,9 +292,7 @@ func (sm *StateManager) SetLaunchMonitorStatus(value LaunchMonitorStatus) {
 	callbacks := sm.callbacks.LaunchMonitorStatus
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetLastError returns the last error
@@ -327,9 +310,7 @@ func (sm *StateManager) SetLastError(value error) {
 	callbacks := sm.callbacks.LastError
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetClub returns the current club
@@ -347,9 +328,7 @@ func (sm *StateManager) SetClub(value *ClubType) {
 	callbacks := sm.callbacks.Club
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetClubName returns the human-readable club name
@@ -381,9 +360,7 @@ func (sm *StateManager) SetHandedness(value *HandednessType) {
 	callbacks := sm.callbacks.Handedness
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterDeviceDisplayNameCallback registers a callback for device display name changes
@@ -470,114 +447,6 @@ func (sm *StateManager) RegisterHandednessCallback(callback StateCallback[*Hande
 	sm.callbacks.Handedness = append(sm.callbacks.Handedness, callback)
 }
 
-// GetGSProStatus returns the GSPro connection status
-func (sm *StateManager) GetGSProStatus() GSProConnectionStatus {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.GSProStatus
-}
-
-// SetGSProStatus sets the GSPro connection status
-func (sm *StateManager) SetGSProStatus(value GSProConnectionStatus) {
-	sm.mu.Lock()
-	oldValue := sm.state.GSProStatus
-	sm.state.GSProStatus = value
-	callbacks := sm.callbacks.GSProStatus
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// GetGSProError returns the GSPro error
-func (sm *StateManager) GetGSProError() error {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.GSProError
-}
-
-// SetGSProError sets the GSPro error
-func (sm *StateManager) SetGSProError(value error) {
-	sm.mu.Lock()
-	oldValue := sm.state.GSProError
-	sm.state.GSProError = value
-	callbacks := sm.callbacks.GSProError
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// RegisterGSProStatusCallback registers a callback for GSPro status changes
-func (sm *StateManager) RegisterGSProStatusCallback(callback StateCallback[GSProConnectionStatus]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.GSProStatus = append(sm.callbacks.GSProStatus, callback)
-}
-
-// RegisterGSProErrorCallback registers a callback for GSPro error changes
-func (sm *StateManager) RegisterGSProErrorCallback(callback StateCallback[error]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.GSProError = append(sm.callbacks.GSProError, callback)
-}
-
-// GetInfiniteTeesStatus returns the Infinite Tees connection status
-func (sm *StateManager) GetInfiniteTeesStatus() InfiniteTeesConnectionStatus {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.InfiniteTeesStatus
-}
-
-// SetInfiniteTeesStatus sets the Infinite Tees connection status
-func (sm *StateManager) SetInfiniteTeesStatus(value InfiniteTeesConnectionStatus) {
-	sm.mu.Lock()
-	oldValue := sm.state.InfiniteTeesStatus
-	sm.state.InfiniteTeesStatus = value
-	callbacks := sm.callbacks.InfiniteTeesStatus
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// GetInfiniteTeesError returns the Infinite Tees error
-func (sm *StateManager) GetInfiniteTeesError() error {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.InfiniteTeesError
-}
-
-// SetInfiniteTeesError sets the Infinite Tees error
-func (sm *StateManager) SetInfiniteTeesError(value error) {
-	sm.mu.Lock()
-	oldValue := sm.state.InfiniteTeesError
-	sm.state.InfiniteTeesError = value
-	callbacks := sm.callbacks.InfiniteTeesError
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// RegisterInfiniteTeesStatusCallback registers a callback for Infinite Tees status changes
-func (sm *StateManager) RegisterInfiniteTeesStatusCallback(callback StateCallback[InfiniteTeesConnectionStatus]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.InfiniteTeesStatus = append(sm.callbacks.InfiniteTeesStatus, callback)
-}
-
-// RegisterInfiniteTeesErrorCallback registers a callback for Infinite Tees error changes
-func (sm *StateManager) RegisterInfiniteTeesErrorCallback(callback StateCallback[error]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.InfiniteTeesError = append(sm.callbacks.InfiniteTeesError, callback)
-}
-
 // GetSpinMode returns the current spin mode
 func (sm *StateManager) GetSpinMode() *SpinMode {
 	sm.mu.RLock()
@@ -593,9 +462,7 @@ func (sm *StateManager) SetSpinMode(value *SpinMode) {
 	callbacks := sm.callbacks.SpinMode
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterSpinModeCallback registers a callback for spin mode changes
@@ -618,9 +485,7 @@ func (sm *StateManager) SetOmniSpeedUnit(value *string) {
 	callbacks := sm.callbacks.OmniSpeedUnit
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniSpeedUnitCallback(callback StateCallback[*string]) {
@@ -642,9 +507,7 @@ func (sm *StateManager) SetOmniDistanceUnit(value *string) {
 	callbacks := sm.callbacks.OmniDistanceUnit
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniDistanceUnitCallback(callback StateCallback[*string]) {
@@ -666,9 +529,7 @@ func (sm *StateManager) SetOmniGreenSpeed(value *int) {
 	callbacks := sm.callbacks.OmniGreenSpeed
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniGreenSpeedCallback(callback StateCallback[*int]) {
@@ -690,69 +551,13 @@ func (sm *StateManager) SetOmniCarryAdjustment(value *int) {
 	callbacks := sm.callbacks.OmniCarryAdjustment
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniCarryAdjustmentCallback(callback StateCallback[*int]) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.callbacks.OmniCarryAdjustment = append(sm.callbacks.OmniCarryAdjustment, callback)
-}
-
-// GetCameraURL returns the camera URL
-func (sm *StateManager) GetCameraURL() *string {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraURL
-}
-
-// SetCameraURL sets the camera URL
-func (sm *StateManager) SetCameraURL(value *string) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraURL
-	sm.state.CameraURL = value
-	callbacks := sm.callbacks.CameraURL
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// GetCameraEnabled returns whether camera integration is enabled
-func (sm *StateManager) GetCameraEnabled() bool {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	return sm.state.CameraEnabled
-}
-
-// SetCameraEnabled sets whether camera integration is enabled
-func (sm *StateManager) SetCameraEnabled(value bool) {
-	sm.mu.Lock()
-	oldValue := sm.state.CameraEnabled
-	sm.state.CameraEnabled = value
-	callbacks := sm.callbacks.CameraEnabled
-	sm.mu.Unlock()
-
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
-}
-
-// RegisterCameraURLCallback registers a callback for camera URL changes
-func (sm *StateManager) RegisterCameraURLCallback(callback StateCallback[*string]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraURL = append(sm.callbacks.CameraURL, callback)
-}
-
-// RegisterCameraEnabledCallback registers a callback for camera enabled changes
-func (sm *StateManager) RegisterCameraEnabledCallback(callback StateCallback[bool]) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	sm.callbacks.CameraEnabled = append(sm.callbacks.CameraEnabled, callback)
 }
 
 // GetIsAligning returns whether alignment mode is active
@@ -770,9 +575,7 @@ func (sm *StateManager) SetIsAligning(value bool) {
 	callbacks := sm.callbacks.IsAligning
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetAlignmentAngle returns the current alignment angle in degrees
@@ -790,9 +593,7 @@ func (sm *StateManager) SetAlignmentAngle(value float64) {
 	callbacks := sm.callbacks.AlignmentAngle
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // GetIsAligned returns whether the device is currently aligned
@@ -810,9 +611,7 @@ func (sm *StateManager) SetIsAligned(value bool) {
 	callbacks := sm.callbacks.IsAligned
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterIsAligningCallback registers a callback for alignment mode changes
@@ -851,9 +650,7 @@ func (sm *StateManager) SetFirmwareVersion(value *string) {
 	callbacks := sm.callbacks.FirmwareVersion
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterFirmwareVersionCallback registers a callback for firmware version changes
@@ -878,9 +675,7 @@ func (sm *StateManager) SetLauncherVersion(value *string) {
 	callbacks := sm.callbacks.LauncherVersion
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterLauncherVersionCallback registers a callback for launcher version changes
@@ -905,9 +700,7 @@ func (sm *StateManager) SetMMIVersion(value *string) {
 	callbacks := sm.callbacks.MMIVersion
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 // RegisterMMIVersionCallback registers a callback for MMI version changes
@@ -930,9 +723,7 @@ func (sm *StateManager) SetDeviceType(value DeviceType) {
 	callbacks := sm.callbacks.DeviceType
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterDeviceTypeCallback(callback StateCallback[DeviceType]) {
@@ -954,9 +745,7 @@ func (sm *StateManager) SetOmniHomeGolfStatus(value *int) {
 	callbacks := sm.callbacks.OmniHomeGolfStatus
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniHomeGolfStatusCallback(callback StateCallback[*int]) {
@@ -978,9 +767,7 @@ func (sm *StateManager) SetOmniStatus(value *int) {
 	callbacks := sm.callbacks.OmniStatus
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniStatusCallback(callback StateCallback[*int]) {
@@ -1002,9 +789,7 @@ func (sm *StateManager) SetOmniClubSelection(value *int) {
 	callbacks := sm.callbacks.OmniClubSelection
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniClubSelectionCallback(callback StateCallback[*int]) {
@@ -1026,9 +811,7 @@ func (sm *StateManager) SetOmniSensorStatus(value *int) {
 	callbacks := sm.callbacks.OmniSensorStatus
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterOmniSensorStatusCallback(callback StateCallback[*int]) {
@@ -1050,9 +833,7 @@ func (sm *StateManager) SetCapacitorReady(value bool) {
 	callbacks := sm.callbacks.CapacitorReady
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterCapacitorReadyCallback(callback StateCallback[bool]) {
@@ -1074,9 +855,7 @@ func (sm *StateManager) SetBatteryCharging(value *int) {
 	callbacks := sm.callbacks.BatteryCharging
 	sm.mu.Unlock()
 
-	for _, callback := range callbacks {
-		callback(oldValue, value)
-	}
+	notifyCallbacks(callbacks, oldValue, value)
 }
 
 func (sm *StateManager) RegisterBatteryChargingCallback(callback StateCallback[*int]) {

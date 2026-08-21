@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,10 +21,10 @@ var (
 func GetLaunchMonitorInstance(sm *StateManager, btManager *BluetoothManager) *LaunchMonitor {
 	launchMonitorOnce.Do(func() {
 		launchMonitorInstance = &LaunchMonitor{
-			stateManager:    sm,
-			sequence:        0,
-			bluetoothClient: btManager.GetClient(),
+			stateManager: sm,
+			sequence:     0,
 		}
+		launchMonitorInstance.setClient(btManager.GetClient())
 	})
 	return launchMonitorInstance
 }
@@ -45,17 +46,16 @@ type LaunchMonitor struct {
 	sequenceMutex     sync.Mutex
 	heartbeatCancel   context.CancelFunc
 	heartbeatCancelMu sync.Mutex
-	bluetoothClient   BluetoothClient
+	bluetoothClient   atomic.Pointer[BluetoothClient]
 	omniClubRetryMu   sync.Mutex
 	omniClubRetryGen  int
 	omniClubRetried   bool
 	detectStateMu     sync.Mutex
 	detectModeActive  bool
 	omniIdleCount     int
+	cmdQueueMu        sync.Mutex
 	cmdQueue          chan cmdEntry
-	cmdQueueCtx       context.Context
 	cmdQueueStop      context.CancelFunc
-	cmdQueueOnce      sync.Once
 	chargeCancel      context.CancelFunc
 	chargeCancelMu    sync.Mutex
 	capacitorReady    bool
@@ -64,7 +64,24 @@ type LaunchMonitor struct {
 
 // UpdateBluetoothClient updates the bluetooth client reference
 func (lm *LaunchMonitor) UpdateBluetoothClient(client BluetoothClient) {
-	lm.bluetoothClient = client
+	lm.setClient(client)
+}
+
+// getClient returns the current bluetooth client, or nil if none is set.
+func (lm *LaunchMonitor) getClient() BluetoothClient {
+	if p := lm.bluetoothClient.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// setClient atomically replaces the bluetooth client reference.
+func (lm *LaunchMonitor) setClient(client BluetoothClient) {
+	if client == nil {
+		lm.bluetoothClient.Store(nil)
+		return
+	}
+	lm.bluetoothClient.Store(&client)
 }
 
 // NotificationHandler handles BLE notifications
@@ -178,8 +195,9 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 		return
 	}
 
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		ApplyOmniBallValidityBitmask(shotMetrics)
+	profile := ProfileFor(lm.stateManager.GetDeviceType())
+	profile.ApplyBallValidity(shotMetrics)
+	if profile.Type() == DeviceTypeOmni {
 		lm.applyOmniPutterBallValidityFilter(shotMetrics)
 	}
 
@@ -205,8 +223,8 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 		lm.stateManager.SetLastBallMetrics(shotMetrics)
 
 		// Automatically request club metrics after receiving shot metrics
-		if lm.bluetoothClient != nil && lm.bluetoothClient.IsConnected() {
-			if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
+		if lm.getClient() != nil && lm.getClient().IsConnected() {
+			if profile.Type() == DeviceTypeOmni {
 				lm.startOmniClubMetricsRequest()
 			}
 
@@ -223,25 +241,19 @@ func (lm *LaunchMonitor) HandleShotBallMetrics(bytesList []string) {
 
 // HandleShotClubMetrics handles shot club metrics notifications (format 11 07).
 func (lm *LaunchMonitor) HandleShotClubMetrics(bytesList []string) {
-	var clubMetrics *ClubMetrics
-	var err error
+	profile := ProfileFor(lm.stateManager.GetDeviceType())
 
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		if len(bytesList) < 19 {
-			log.Printf("Ignoring short Omni club metrics packet (got %d bytes, need 19)", len(bytesList))
-			return
-		}
-		clubMetrics, err = ParseOmniShotClubMetrics(bytesList)
-		lm.completeOmniClubMetricsRequest()
-		lm.applyOmniPutterValidityFilter(clubMetrics)
-	} else {
-		clubMetrics, err = ParseShotClubMetrics(bytesList)
-		lm.applyPutterClubFilter(clubMetrics)
-	}
-
+	clubMetrics, err := profile.ParseClubMetrics(bytesList)
 	if err != nil {
 		log.Printf("Failed to parse club metrics data: %v", err)
 		return
+	}
+
+	if profile.Type() == DeviceTypeOmni {
+		lm.completeOmniClubMetricsRequest()
+		lm.applyOmniPutterValidityFilter(clubMetrics)
+	} else {
+		lm.applyPutterClubFilter(clubMetrics)
 	}
 
 	lm.stateManager.SetLastClubMetrics(clubMetrics)
@@ -342,7 +354,7 @@ func (lm *LaunchMonitor) handleOmniStatusRecovery(status LaunchMonitorStatus) {
 		return
 	}
 
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -401,7 +413,7 @@ func (lm *LaunchMonitor) handleOmniClubMetricsTimeout(gen int) {
 		lm.omniClubRetried = true
 		lm.omniClubRetryMu.Unlock()
 
-		if lm.bluetoothClient != nil && lm.bluetoothClient.IsConnected() {
+		if lm.getClient() != nil && lm.getClient().IsConnected() {
 			seq := lm.getNextSequence()
 			clubMetricsCommand := RequestClubMetricsCommand(seq)
 			if err := lm.SendCommand(clubMetricsCommand); err != nil {
@@ -482,7 +494,7 @@ func (lm *LaunchMonitor) syncOmniHandedness(handedness *HandednessType) {
 	if lm.stateManager.GetDeviceType() != DeviceTypeOmni {
 		return
 	}
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -537,7 +549,7 @@ func (lm *LaunchMonitor) syncOmniUnits() {
 	if lm.stateManager.GetDeviceType() != DeviceTypeOmni {
 		return
 	}
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -552,7 +564,7 @@ func (lm *LaunchMonitor) syncOmniGreenSpeed() {
 	if lm.stateManager.GetDeviceType() != DeviceTypeOmni {
 		return
 	}
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -566,7 +578,7 @@ func (lm *LaunchMonitor) syncOmniCarryAdjustment() {
 	if lm.stateManager.GetDeviceType() != DeviceTypeOmni {
 		return
 	}
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -576,24 +588,32 @@ func (lm *LaunchMonitor) syncOmniCarryAdjustment() {
 	}
 }
 
-func (lm *LaunchMonitor) ensureCommandQueue() {
-	lm.cmdQueueOnce.Do(func() {
-		lm.cmdQueue = make(chan cmdEntry, 32)
-		lm.cmdQueueCtx, lm.cmdQueueStop = context.WithCancel(context.Background())
-		go lm.drainCommandQueue()
-	})
+// getCommandQueue lazily starts the rate-limited command queue and returns the
+// channel to enqueue on. The queue lifecycle is guarded by cmdQueueMu so it can
+// be safely torn down and recreated across reconnects without racing.
+func (lm *LaunchMonitor) getCommandQueue() chan cmdEntry {
+	lm.cmdQueueMu.Lock()
+	defer lm.cmdQueueMu.Unlock()
+	if lm.cmdQueue == nil {
+		queue := make(chan cmdEntry, 32)
+		ctx, cancel := context.WithCancel(context.Background())
+		lm.cmdQueue = queue
+		lm.cmdQueueStop = cancel
+		go lm.drainCommandQueue(ctx, queue)
+	}
+	return lm.cmdQueue
 }
 
-func (lm *LaunchMonitor) drainCommandQueue() {
+func (lm *LaunchMonitor) drainCommandQueue(ctx context.Context, queue chan cmdEntry) {
 	for {
 		select {
-		case <-lm.cmdQueueCtx.Done():
+		case <-ctx.Done():
 			return
-		case entry := <-lm.cmdQueue:
+		case entry := <-queue:
 			err := lm.writeCommand(entry.hexCmd)
 			entry.errCh <- err
 			select {
-			case <-lm.cmdQueueCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-time.After(150 * time.Millisecond):
 			}
@@ -602,7 +622,7 @@ func (lm *LaunchMonitor) drainCommandQueue() {
 }
 
 func (lm *LaunchMonitor) writeCommand(commandHex string) error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -611,18 +631,24 @@ func (lm *LaunchMonitor) writeCommand(commandHex string) error {
 		return fmt.Errorf("invalid hex command: %w", err)
 	}
 
-	return lm.bluetoothClient.WriteCharacteristic(CommandCharUUID, commandBytes)
+	return lm.getClient().WriteCharacteristic(CommandCharUUID, commandBytes)
 }
 
+// stopCommandQueue cancels the drain goroutine and clears the queue so the next
+// SendCommand starts a fresh one.
 func (lm *LaunchMonitor) stopCommandQueue() {
+	lm.cmdQueueMu.Lock()
+	defer lm.cmdQueueMu.Unlock()
 	if lm.cmdQueueStop != nil {
 		lm.cmdQueueStop()
 	}
+	lm.cmdQueue = nil
+	lm.cmdQueueStop = nil
 }
 
 // SendCommand sends a command to the BLE device via the rate-limited queue
 func (lm *LaunchMonitor) SendCommand(commandHex string) error {
-	lm.ensureCommandQueue()
+	queue := lm.getCommandQueue()
 
 	entry := cmdEntry{
 		hexCmd: commandHex,
@@ -630,7 +656,7 @@ func (lm *LaunchMonitor) SendCommand(commandHex string) error {
 	}
 
 	select {
-	case lm.cmdQueue <- entry:
+	case queue <- entry:
 	case <-time.After(5 * time.Second):
 		return fmt.Errorf("command queue full")
 	}
@@ -645,11 +671,11 @@ func (lm *LaunchMonitor) SendCommand(commandHex string) error {
 
 // ReadBatteryLevel reads the battery level from the device
 func (lm *LaunchMonitor) ReadBatteryLevel() (int, error) {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return 0, fmt.Errorf("not connected to device")
 	}
 
-	batteryLevelBytes, err := lm.bluetoothClient.ReadCharacteristic(BatteryLevelCharUUID)
+	batteryLevelBytes, err := lm.getClient().ReadCharacteristic(BatteryLevelCharUUID)
 	if err != nil {
 		return 0, fmt.Errorf("could not read battery level: %w", err)
 	}
@@ -668,7 +694,7 @@ func (lm *LaunchMonitor) ReadBatteryLevel() (int, error) {
 
 // ActivateBallDetection activates ball detection mode
 func (lm *LaunchMonitor) ActivateBallDetection() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -691,14 +717,9 @@ func (lm *LaunchMonitor) ActivateBallDetection() error {
 		spinMode = &defaultSpinMode
 	}
 
-	// Send club command (Omni uses adjusted clubSel encoding)
+	// Send club command (the device profile encodes Home vs Omni clubSel)
 	seq := lm.getNextSequence()
-	var clubCommand string
-	if lm.stateManager.GetDeviceType() == DeviceTypeOmni {
-		clubCommand = OmniClubCommand(seq, *club, *handedness)
-	} else {
-		clubCommand = ClubCommand(seq, *club, *handedness)
-	}
+	clubCommand := ProfileFor(lm.stateManager.GetDeviceType()).ClubCommand(seq, *club, *handedness)
 
 	err := lm.SendCommand(clubCommand)
 	if err != nil {
@@ -724,7 +745,7 @@ func (lm *LaunchMonitor) ActivateBallDetection() error {
 
 // DeactivateBallDetection deactivates ball detection mode
 func (lm *LaunchMonitor) DeactivateBallDetection() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -794,7 +815,7 @@ func (lm *LaunchMonitor) startHeartbeatTask() {
 }
 
 func (lm *LaunchMonitor) sendHeartbeatTick() {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
@@ -821,7 +842,7 @@ func (lm *LaunchMonitor) stopHeartbeatTask() {
 
 // ManageHeartbeat initializes and manages the heartbeat communication with the device
 func (lm *LaunchMonitor) ManageHeartbeat() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -829,7 +850,7 @@ func (lm *LaunchMonitor) ManageHeartbeat() error {
 	lm.startHeartbeatTask()
 
 	// Send initial heartbeat
-	if lm.bluetoothClient != nil && lm.bluetoothClient.IsConnected() {
+	if lm.getClient() != nil && lm.getClient().IsConnected() {
 		seq := lm.getNextSequence()
 		heartbeatCommand := HeartbeatCommand(seq)
 		err := lm.SendCommand(heartbeatCommand)
@@ -852,7 +873,7 @@ func (lm *LaunchMonitor) SetupNotifications(btManager *BluetoothManager) {
 
 	// Register pre-disconnect hook to try to deactivate ball detection before disconnection
 	btManager.SetPreDisconnectHook(func() {
-		if lm.bluetoothClient != nil && lm.bluetoothClient.IsConnected() {
+		if lm.getClient() != nil && lm.getClient().IsConnected() {
 			log.Println("LaunchMonitor: Attempting to deactivate ball detection before disconnection")
 			err := lm.DeactivateBallDetection()
 			if err != nil {
@@ -937,51 +958,37 @@ func (lm *LaunchMonitor) sendOmniInitSequence() {
 	if lm.stateManager.GetDeviceType() != DeviceTypeOmni {
 		return
 	}
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 
-	log.Println("LaunchMonitor: Sending Omni init sequence")
+	log.Println("LaunchMonitor: Sending device init sequence")
 	commands := lm.buildOmniInitCommands()
 
 	for _, c := range commands {
-		if !lm.bluetoothClient.IsConnected() {
-			log.Println("LaunchMonitor: Device disconnected during Omni init, aborting")
+		if !lm.getClient().IsConnected() {
+			log.Println("LaunchMonitor: Device disconnected during init, aborting")
 			return
 		}
-		err := lm.SendCommand(c.cmd)
-		if err != nil {
-			log.Printf("LaunchMonitor: Failed to send Omni %s: %v", c.name, err)
+		if err := lm.SendCommand(c.Hex); err != nil {
+			log.Printf("LaunchMonitor: Failed to send %s: %v", c.Name, err)
 		}
 	}
 
-	log.Println("LaunchMonitor: Omni init sequence complete")
+	log.Println("LaunchMonitor: Device init sequence complete")
 }
 
-func (lm *LaunchMonitor) buildOmniInitCommands() []struct {
-	name string
-	cmd  string
-} {
+// buildOmniInitCommands resolves the device profile's post-connect init sequence
+// from current app state.
+func (lm *LaunchMonitor) buildOmniInitCommands() []NamedCommand {
 	speedUnit, distanceUnit := lm.omniUnitsFromState()
-
-	commands := []struct {
-		name string
-		cmd  string
-	}{
-		{"SetUnits", OmniSetUnitsCommand(lm.getNextSequence(), speedUnit, distanceUnit)},
-		{"SetCarryDistanceAdjustment", OmniSetCarryDistanceAdjustmentCommand(lm.getNextSequence(), lm.omniCarryAdjustmentFromState())},
-		{"SetGreenSpeed", OmniSetGreenSpeedCommand(lm.getNextSequence(), lm.omniGreenSpeedFromState())},
-	}
-
-	handedness := lm.stateManager.GetHandedness()
-	if handedness != nil {
-		commands = append(commands, struct {
-			name string
-			cmd  string
-		}{"SetHanded", OmniSetHandedCommand(lm.getNextSequence(), *handedness)})
-	}
-
-	return commands
+	return ProfileFor(lm.stateManager.GetDeviceType()).InitCommands(InitOptions{
+		SpeedUnit:       speedUnit,
+		DistanceUnit:    distanceUnit,
+		CarryAdjustment: lm.omniCarryAdjustmentFromState(),
+		GreenSpeed:      lm.omniGreenSpeedFromState(),
+		Handedness:      lm.stateManager.GetHandedness(),
+	}, lm.getNextSequence)
 }
 
 func (lm *LaunchMonitor) HandleBatteryMessage(bytesList []string) {
@@ -1053,7 +1060,7 @@ func (lm *LaunchMonitor) startChargePolling() {
 }
 
 func (lm *LaunchMonitor) sendChargeCommand() {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return
 	}
 	seq := lm.getNextSequence()
@@ -1094,6 +1101,13 @@ func (lm *LaunchMonitor) HandleBluetoothDisconnect() {
 	lm.omniIdleCount = 0
 	lm.detectStateMu.Unlock()
 
+	// Invalidate any pending Omni club-metrics retry timers so they don't fire
+	// against the next session.
+	lm.omniClubRetryMu.Lock()
+	lm.omniClubRetryGen++
+	lm.omniClubRetried = false
+	lm.omniClubRetryMu.Unlock()
+
 	lm.setCapacitorReady(false)
 	lm.stopChargePolling()
 
@@ -1101,12 +1115,11 @@ func (lm *LaunchMonitor) HandleBluetoothDisconnect() {
 	lm.stopHeartbeatTask()
 
 	lm.stopCommandQueue()
-	lm.cmdQueueOnce = sync.Once{}
 }
 
 // StartAlignment starts alignment mode
 func (lm *LaunchMonitor) StartAlignment() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -1155,7 +1168,7 @@ func (lm *LaunchMonitor) StartAlignment() error {
 
 // StopAlignment stops alignment mode and saves calibration (OK button)
 func (lm *LaunchMonitor) StopAlignment() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -1179,7 +1192,7 @@ func (lm *LaunchMonitor) StopAlignment() error {
 
 // CancelAlignment cancels alignment mode without saving calibration (Cancel button)
 func (lm *LaunchMonitor) CancelAlignment() error {
-	if lm.bluetoothClient == nil || !lm.bluetoothClient.IsConnected() {
+	if lm.getClient() == nil || !lm.getClient().IsConnected() {
 		return fmt.Errorf("not connected to device")
 	}
 
@@ -1205,12 +1218,12 @@ func (lm *LaunchMonitor) CancelAlignment() error {
 func (lm *LaunchMonitor) RequestFirmwareVersion() error {
 	log.Printf("LaunchMonitor: RequestFirmwareVersion called")
 
-	if lm.bluetoothClient == nil {
+	if lm.getClient() == nil {
 		log.Printf("LaunchMonitor: bluetoothClient is nil")
 		return fmt.Errorf("bluetoothClient is nil")
 	}
 
-	if !lm.bluetoothClient.IsConnected() {
+	if !lm.getClient().IsConnected() {
 		log.Printf("LaunchMonitor: device not connected")
 		return fmt.Errorf("not connected to device")
 	}

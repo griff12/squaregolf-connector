@@ -54,7 +54,8 @@ func (bm *BluetoothManager) SetClient(client BluetoothClient) {
 	bm.setupPhaseCallback()
 }
 
-// setupPhaseCallback sets up the phase change callback on the Bluetooth client
+// setupPhaseCallback sets up the phase change and connection-lost callbacks on
+// the Bluetooth client.
 func (bm *BluetoothManager) setupPhaseCallback() {
 	if tinyGoClient, ok := bm.bluetoothClient.(*TinyGoBluetoothClient); ok {
 		tinyGoClient.SetPhaseChangeCallback(func(phase ConnectionPhase) {
@@ -65,7 +66,18 @@ func (bm *BluetoothManager) setupPhaseCallback() {
 				bm.stateManager.SetConnectionStatus(ConnectionStatusConnecting)
 			}
 		})
+		tinyGoClient.SetConnectionLostCallback(bm.handleConnectionLost)
 	}
+}
+
+// handleConnectionLost reflects an unsolicited disconnect into application
+// state. Setting ConnectionStatusDisconnected drives the LaunchMonitor's
+// registered teardown (ball detection reset, heartbeat stop, queue teardown).
+func (bm *BluetoothManager) handleConnectionLost() {
+	log.Println("BluetoothManager: unexpected disconnect detected, resetting connection state")
+	bm.stateManager.SetConnectionStatus(ConnectionStatusDisconnected)
+	bm.stateManager.SetBatteryLevel(nil)
+	bm.stateManager.SetDeviceDisplayName(nil)
 }
 
 // StartBluetoothConnection starts the Bluetooth connection in a background goroutine

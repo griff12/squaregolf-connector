@@ -1,6 +1,6 @@
 package camera
 
-import "github.com/brentyates/squaregolf-connector/internal/core"
+import "github.com/brentyates/squaregolf-connector/internal/core/protocol"
 
 // CameraStatus represents the current status of the camera system
 // Maps to the response from GET /api/lm/status
@@ -37,15 +37,15 @@ type BallData struct {
 // ClubData represents club metrics sent to SwingCam (flat structure, camelCase)
 // Sent directly as request body to PATCH /api/recordings/{filename}/metadata
 type ClubData struct {
-	ClubSpeed    float64 `json:"clubSpeed,omitempty"`    // Club head speed in mph
-	ClubPath     float64 `json:"clubPath,omitempty"`     // Club path in degrees (+ = in-to-out, - = out-to-in)
-	FaceAngle    float64 `json:"faceAngle,omitempty"`    // Face angle at impact in degrees (+ = open, - = closed)
-	FaceToPath   float64 `json:"faceToPath,omitempty"`   // Face to path relationship in degrees
-	AttackAngle  float64 `json:"attackAngle,omitempty"`  // Attack angle in degrees (+ = up, - = down)
-	DynamicLoft  float64 `json:"dynamicLoft,omitempty"`  // Dynamic loft at impact in degrees
-	SmashFactor  float64 `json:"smashFactor,omitempty"`  // Smash factor (ball speed / club speed)
-	LowPoint     float64 `json:"lowPoint,omitempty"`     // Low point position (inches before/after ball)
-	ClubType     string  `json:"clubType,omitempty"`     // Club name (e.g., "Driver", "7-iron")
+	ClubSpeed   float64 `json:"clubSpeed,omitempty"`   // Club head speed in mph
+	ClubPath    float64 `json:"clubPath,omitempty"`    // Club path in degrees (+ = in-to-out, - = out-to-in)
+	FaceAngle   float64 `json:"faceAngle,omitempty"`   // Face angle at impact in degrees (+ = open, - = closed)
+	FaceToPath  float64 `json:"faceToPath,omitempty"`  // Face to path relationship in degrees
+	AttackAngle float64 `json:"attackAngle,omitempty"` // Attack angle in degrees (+ = up, - = down)
+	DynamicLoft float64 `json:"dynamicLoft,omitempty"` // Dynamic loft at impact in degrees
+	SmashFactor float64 `json:"smashFactor,omitempty"` // Smash factor (ball speed / club speed)
+	LowPoint    float64 `json:"lowPoint,omitempty"`    // Low point position (inches before/after ball)
+	ClubType    string  `json:"clubType,omitempty"`    // Club name (e.g., "Driver", "7-iron")
 }
 
 // ShotResponse represents the response from POST /api/lm/shot-detected
@@ -62,8 +62,8 @@ type CancelResponse struct {
 	State   string `json:"state"`   // New state after cancellation
 }
 
-// convertBallMetrics converts core.BallMetrics to SwingCam BallData format
-func convertBallMetrics(metrics *core.BallMetrics) *BallData {
+// convertBallMetrics converts protocol.BallMetrics to SwingCam BallData format
+func convertBallMetrics(metrics *protocol.BallMetrics) *BallData {
 	if metrics == nil {
 		return nil
 	}
@@ -79,8 +79,8 @@ func convertBallMetrics(metrics *core.BallMetrics) *BallData {
 	}
 }
 
-// convertClubMetrics converts core.ClubMetrics to SwingCam ClubData format
-func convertClubMetrics(metrics *core.ClubMetrics) *ClubData {
+// convertClubMetrics converts protocol.ClubMetrics to SwingCam ClubData format
+func convertClubMetrics(metrics *protocol.ClubMetrics) *ClubData {
 	if metrics == nil {
 		return nil
 	}

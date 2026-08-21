@@ -11,6 +11,8 @@ import (
 
 	appcfg "github.com/brentyates/squaregolf-connector/internal/config"
 	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/plugin"
+	"github.com/brentyates/squaregolf-connector/internal/plugins/connectapi"
 	"github.com/brentyates/squaregolf-connector/internal/web"
 )
 
@@ -45,16 +47,15 @@ func main() {
 	launchMonitor := core.GetLaunchMonitorInstance(stateManager, bluetoothManager)
 	launchMonitor.SetupNotifications(bluetoothManager)
 
+	registry := plugin.NewRegistry(core.NewPluginHost(stateManager, launchMonitor))
+	registry.Register(connectapi.New(connectapi.OpenAPI(), settings.GSProIP, settings.GSProPort))
+	registry.StartAll(context.Background())
+
 	server := web.NewServer(
 		stateManager,
 		bluetoothManager,
 		launchMonitor,
-		nil,
-		settings.GSProIP,
-		settings.GSProPort,
-		settings.InfiniteTeesIP,
-		settings.InfiniteTeesPort,
-		false,
+		registry,
 	)
 
 	bluetoothManager.StartBluetoothConnection(settings.DeviceName, "")

@@ -1,11 +1,11 @@
-package gspro
+package connectapi
 
 import (
-	"github.com/brentyates/squaregolf-connector/internal/core"
+	"github.com/brentyates/squaregolf-connector/internal/core/protocol"
 )
 
-// convertToGSProShotFormat converts internal shot data format to GSPro format
-func (g *Integration) convertToGSProShotFormat(ballMetrics core.BallMetrics, incrementShot bool) ShotData {
+// convertToShotFormat converts internal shot data format to GSPro format
+func (g *Integration) convertToShotFormat(ballMetrics protocol.BallMetrics, incrementShot bool) ShotData {
 	// Increment shot number only when requested (for new ball data)
 	if incrementShot {
 		g.shotNumber++
@@ -34,8 +34,8 @@ func (g *Integration) convertToGSProShotFormat(ballMetrics core.BallMetrics, inc
 	}
 }
 
-// convertClubDataToGSPro converts internal club data format to GSPro format
-func (g *Integration) convertClubDataToGSPro(clubMetrics core.ClubMetrics) *ClubData {
+// convertClubData converts internal club data format to GSPro format
+func (g *Integration) convertClubData(clubMetrics protocol.ClubMetrics) *ClubData {
 	return &ClubData{
 		Speed:                clubMetrics.ClubSpeed * 2.23694,
 		AngleOfAttack:        clubMetrics.AttackAngle,
@@ -50,47 +50,47 @@ func (g *Integration) convertClubDataToGSPro(clubMetrics core.ClubMetrics) *Club
 	}
 }
 
-// mapGSProClubToInternal maps GSPro club name to internal ClubType
-func (g *Integration) mapGSProClubToInternal(clubName string) *core.ClubType {
+// mapClubToInternal maps GSPro club name to internal ClubType
+func (g *Integration) mapClubToInternal(clubName string) *protocol.ClubType {
 	// Map GSPro club names to our internal ClubType
-	clubMap := map[string]core.ClubType{
+	clubMap := map[string]protocol.ClubType{
 		// Drivers and woods
-		"DR": core.ClubDriver,
-		"W2": core.ClubWood3,
-		"W3": core.ClubWood3,
-		"W4": core.ClubWood5,
-		"W5": core.ClubWood5,
-		"W6": core.ClubWood7,
-		"W7": core.ClubWood7,
+		"DR": protocol.ClubDriver,
+		"W2": protocol.ClubWood3,
+		"W3": protocol.ClubWood3,
+		"W4": protocol.ClubWood5,
+		"W5": protocol.ClubWood5,
+		"W6": protocol.ClubWood7,
+		"W7": protocol.ClubWood7,
 
 		// Hybrids
-		"H2": core.ClubWood3,
-		"H3": core.ClubWood3,
-		"H4": core.ClubWood3,
-		"H5": core.ClubWood3,
-		"H6": core.ClubWood5,
-		"H7": core.ClubIron4,
+		"H2": protocol.ClubWood3,
+		"H3": protocol.ClubWood3,
+		"H4": protocol.ClubWood3,
+		"H5": protocol.ClubWood3,
+		"H6": protocol.ClubWood5,
+		"H7": protocol.ClubIron4,
 
 		// Irons
-		"I1": core.ClubWood3,
-		"I2": core.ClubWood3,
-		"I3": core.ClubWood5,
-		"I4": core.ClubIron4,
-		"I5": core.ClubIron5,
-		"I6": core.ClubIron6,
-		"I7": core.ClubIron7,
-		"I8": core.ClubIron8,
-		"I9": core.ClubIron9,
+		"I1": protocol.ClubWood3,
+		"I2": protocol.ClubWood3,
+		"I3": protocol.ClubWood5,
+		"I4": protocol.ClubIron4,
+		"I5": protocol.ClubIron5,
+		"I6": protocol.ClubIron6,
+		"I7": protocol.ClubIron7,
+		"I8": protocol.ClubIron8,
+		"I9": protocol.ClubIron9,
 
 		// Wedges
-		"PW": core.ClubPitchingWedge,
-		"AW": core.ClubApproachWedge,
-		"GW": core.ClubApproachWedge,
-		"SW": core.ClubSandWedge,
-		"LW": core.ClubSandWedge,
+		"PW": protocol.ClubPitchingWedge,
+		"AW": protocol.ClubApproachWedge,
+		"GW": protocol.ClubApproachWedge,
+		"SW": protocol.ClubSandWedge,
+		"LW": protocol.ClubSandWedge,
 
 		// Putter
-		"PT": core.ClubPutter,
+		"PT": protocol.ClubPutter,
 	}
 
 	if club, ok := clubMap[clubName]; ok {
@@ -99,8 +99,8 @@ func (g *Integration) mapGSProClubToInternal(clubName string) *core.ClubType {
 	return nil
 }
 
-// mapGSProClubToFriendlyName converts GSPro club codes to short readable names for display
-func mapGSProClubToFriendlyName(clubCode string) string {
+// mapClubToFriendlyName converts GSPro club codes to short readable names for display
+func mapClubToFriendlyName(clubCode string) string {
 	nameMap := map[string]string{
 		// Drivers and woods
 		"DR": "DR",
