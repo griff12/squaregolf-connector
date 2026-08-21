@@ -18,6 +18,7 @@
 /* Features */
 @import './alignment.css';
 @import './device.css';
+@import './shot-timeline.css';
 
 /* Utilities & Responsive */
 @import './responsive.css';

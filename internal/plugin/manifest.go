@@ -18,6 +18,16 @@ type ConfigField struct {
 	Help  string    `json:"help,omitempty"`
 }
 
+// Action describes a plugin operation that the generic integrations UI can
+// invoke. The first version intentionally supports parameterless actions; an
+// input schema can be added compatibly when device selection needs it.
+type Action struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Style       string `json:"style,omitempty"`
+}
+
 // Manifest is a plugin's self-description. The frontend renders integrations
 // entirely from manifests + live status, so adding a plugin needs no UI changes.
 type Manifest struct {
@@ -25,6 +35,7 @@ type Manifest struct {
 	DisplayName  string        `json:"displayName"`
 	Icon         string        `json:"icon,omitempty"` // Material icon name
 	ConfigSchema []ConfigField `json:"configSchema,omitempty"`
+	Actions      []Action      `json:"actions,omitempty"`
 }
 
 // Describable is implemented by plugins that advertise a manifest for the UI.

@@ -63,6 +63,7 @@ SquareGolf Connector connects to SquareGolf Bluetooth launch monitors and provid
 - Ball detection and position tracking
 - Configurable club selection and handedness
 - Persistent settings storage
+- Unified shot timeline for launch data and plugin-contributed metrics, feedback, charts, and media
 - Auto-connect functionality
 
 ## Requirements
@@ -70,6 +71,10 @@ SquareGolf Connector connects to SquareGolf Bluetooth launch monitors and provid
 - **macOS** or **Windows 10/11** for the ready-to-download app releases
 - Bluetooth adapter
 - A SquareGolf launch monitor for normal use
+
+## Plugin Development
+
+Integrations are intentionally lightweight connectors. They subscribe to canonical shots and publish structured results back into the shared shot timeline, allowing multiple devices such as swing cameras and wrist sensors to contribute to the same experience. See [Plugin Architecture](docs/PLUGIN_ARCHITECTURE.md).
 
 ## Quick Start
 

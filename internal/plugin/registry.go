@@ -9,15 +9,23 @@ import (
 // of the engine drive them generically by name. The engine depends on the
 // Registry; only the composition root (main) knows the concrete plugin types.
 type Registry struct {
-	host    Host
-	plugins map[string]Plugin
-	order   []string
+	host     Host
+	timeline *Timeline
+	plugins  map[string]Plugin
+	order    []string
 }
 
 // NewRegistry creates an empty registry bound to a host.
 func NewRegistry(host Host) *Registry {
-	return &Registry{host: host, plugins: map[string]Plugin{}}
+	timeline := NewTimeline()
+	if provider, ok := host.(interface{ Timeline() *Timeline }); ok && provider.Timeline() != nil {
+		timeline = provider.Timeline()
+	}
+	return &Registry{host: host, timeline: timeline, plugins: map[string]Plugin{}}
 }
+
+// Timeline returns the canonical shot/result timeline shared by every plugin.
+func (r *Registry) Timeline() *Timeline { return r.timeline }
 
 // Register adds a plugin. The last registration for a name wins.
 func (r *Registry) Register(p Plugin) {
@@ -69,6 +77,24 @@ func (r *Registry) Connectable(name string) (Connectable, bool) {
 	return c, ok
 }
 
+func (r *Registry) ConnectionLifecycle(name string) (ConnectionLifecycle, bool) {
+	p, ok := r.plugins[name]
+	if !ok {
+		return nil, false
+	}
+	capability, ok := p.(ConnectionLifecycle)
+	return capability, ok
+}
+
+func (r *Registry) Actionable(name string) (Actionable, bool) {
+	p, ok := r.plugins[name]
+	if !ok {
+		return nil, false
+	}
+	capability, ok := p.(Actionable)
+	return capability, ok
+}
+
 // ConfigStore returns the plugin as a ConfigStore, if it supports it.
 func (r *Registry) ConfigStore(name string) (ConfigStore, bool) {
 	p, ok := r.plugins[name]
@@ -84,6 +110,7 @@ func (r *Registry) ConfigStore(name string) (ConfigStore, bool) {
 type View struct {
 	Manifest
 	Connectable  bool           `json:"connectable"`
+	Actionable   bool           `json:"actionable"`
 	Configvalues map[string]any `json:"config,omitempty"`
 }
 
@@ -101,6 +128,12 @@ func (r *Registry) Views() []View {
 		view := View{Manifest: d.Describe()}
 		if _, ok := p.(Connectable); ok {
 			view.Connectable = true
+		}
+		if _, ok := p.(ConnectionLifecycle); ok {
+			view.Connectable = true
+		}
+		if _, ok := p.(Actionable); ok {
+			view.Actionable = true
 		}
 		if cs, ok := p.(ConfigStore); ok {
 			view.Configvalues = cs.Config()

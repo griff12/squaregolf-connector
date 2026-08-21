@@ -96,6 +96,15 @@ export class IntegrationsManager {
             buttons.appendChild(disconnectBtn);
         }
 
+        for (const action of it.actions || []) {
+            const actionBtn = document.createElement('button');
+            actionBtn.className = action.style === 'primary' ? 'btn btn-primary' : 'btn btn-secondary';
+            actionBtn.textContent = action.label;
+            if (action.description) actionBtn.title = action.description;
+            actionBtn.addEventListener('click', () => this.invokeAction(it.name, action));
+            buttons.appendChild(actionBtn);
+        }
+
         content.appendChild(buttons);
         card.appendChild(content);
 
@@ -182,6 +191,16 @@ export class IntegrationsManager {
             this.toast.info('Disconnecting...');
         } catch (err) {
             this.toast.error(`Disconnect failed: ${err.message}`);
+        }
+    }
+
+    async invokeAction(name, action) {
+        try {
+            const res = await this.api.post(`/api/integrations/${name}/actions/${action.key}`, {});
+            if (!res.ok) throw new Error(await res.text());
+            this.toast.success(`${action.label} completed`);
+        } catch (err) {
+            this.toast.error(`${action.label} failed: ${err.message}`);
         }
     }
 

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,6 +54,18 @@ func (f *fakeIntegration) Configure(v map[string]any) {
 		f.cfg[k] = val
 	}
 }
+func (f *fakeIntegration) ValidateConfig(values map[string]any) error {
+	if values["host"] == "invalid" {
+		return errors.New("invalid host")
+	}
+	return nil
+}
+func (f *fakeIntegration) Invoke(_ context.Context, action string, _ map[string]any) (map[string]any, error) {
+	if action != "scan" {
+		return nil, errors.New("unknown action")
+	}
+	return map[string]any{"devices": []any{"sensor-1"}}, nil
+}
 
 func newTestServer(plugins *plugin.Registry) (*Server, *mux.Router) {
 	s := &Server{
@@ -64,7 +77,35 @@ func newTestServer(plugins *plugin.Registry) (*Server, *mux.Router) {
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/integrations", s.handleIntegrations).Methods("GET")
 	api.HandleFunc("/integrations/{name}/config", s.handleIntegrationConfig).Methods("GET", "POST")
+	api.HandleFunc("/integrations/{name}/actions/{action}", s.handleIntegrationAction).Methods("POST")
 	return s, r
+}
+
+func TestHandleIntegrationConfigRejectsInvalidValues(t *testing.T) {
+	fake := &fakeIntegration{name: "fake", cfg: map[string]any{"host": "old"}}
+	reg := plugin.NewRegistry(nil)
+	reg.Register(fake)
+	_, r := newTestServer(reg)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/integrations/fake/config", strings.NewReader(`{"host":"invalid"}`))
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || fake.cfg["host"] != "old" {
+		t.Fatalf("status = %d, config = %v", rec.Code, fake.cfg)
+	}
+}
+
+func TestHandleIntegrationAction(t *testing.T) {
+	fake := &fakeIntegration{name: "fake", cfg: map[string]any{}}
+	reg := plugin.NewRegistry(nil)
+	reg.Register(fake)
+	_, r := newTestServer(reg)
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/integrations/fake/actions/scan", strings.NewReader(`{}`)))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "sensor-1") {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandleIntegrationsShape(t *testing.T) {

@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/brentyates/squaregolf-connector/internal/config"
@@ -45,6 +47,15 @@ func (s *Server) handleIntegrations(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleIntegrationConnect(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
+	if lifecycle, ok := s.plugins.ConnectionLifecycle(name); ok {
+		go func() {
+			if err := lifecycle.Connect(context.Background()); err != nil {
+				log.Printf("integration %q connect failed: %v", name, err)
+			}
+		}()
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	c, ok := s.plugins.Connectable(name)
 	if !ok {
 		http.Error(w, "integration is not connectable", http.StatusNotFound)
@@ -68,6 +79,15 @@ func (s *Server) handleIntegrationConnect(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleIntegrationDisconnect(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
+	if lifecycle, ok := s.plugins.ConnectionLifecycle(name); ok {
+		go func() {
+			if err := lifecycle.Disconnect(context.Background()); err != nil {
+				log.Printf("integration %q disconnect failed: %v", name, err)
+			}
+		}()
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	c, ok := s.plugins.Connectable(name)
 	if !ok {
 		http.Error(w, "integration is not connectable", http.StatusNotFound)
@@ -97,6 +117,14 @@ func (s *Server) handleIntegrationConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if integration, ok := s.plugins.Get(name); ok {
+		if validator, ok := integration.(plugin.ConfigValidator); ok {
+			if err := validator.ValidateConfig(values); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+		}
+	}
 	cs.Configure(values)
 	if err := config.GetInstance().SetIntegrationConfig(name, cs.Config()); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -104,6 +132,30 @@ func (s *Server) handleIntegrationConfig(w http.ResponseWriter, r *http.Request)
 	}
 	s.broadcastIntegration(name)
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleIntegrationAction(w http.ResponseWriter, r *http.Request) {
+	name := mux.Vars(r)["name"]
+	actionName := mux.Vars(r)["action"]
+	actionable, ok := s.plugins.Actionable(name)
+	if !ok {
+		http.Error(w, "integration does not expose actions", http.StatusNotFound)
+		return
+	}
+	input := map[string]any{}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+	}
+	result, err := actionable.Invoke(r.Context(), actionName, input)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
 
 // broadcastIntegration pushes one integration's current view over the WebSocket.

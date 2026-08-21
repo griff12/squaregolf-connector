@@ -9,14 +9,32 @@ import (
 // LaunchMonitor. It is the one place that bridges the narrow plugin contract to
 // the concrete engine; plugins never see StateManager or LaunchMonitor.
 type pluginHost struct {
-	sm *StateManager
-	lm *LaunchMonitor
+	sm       *StateManager
+	lm       *LaunchMonitor
+	timeline *plugin.Timeline
 }
 
 // NewPluginHost builds the Host the composition root hands to plugins.
 func NewPluginHost(sm *StateManager, lm *LaunchMonitor) plugin.Host {
-	return &pluginHost{sm: sm, lm: lm}
+	host := &pluginHost{sm: sm, lm: lm, timeline: plugin.NewTimeline()}
+	if sm != nil {
+		sm.RegisterLastBallMetricsCallback(func(oldValue, newValue *protocol.BallMetrics) {
+			if newValue == nil || oldValue == newValue {
+				return
+			}
+			host.timeline.RecordShot(newValue, sm.GetClub(), host.ClubName(), sm.GetHandedness())
+		})
+		sm.RegisterLastClubMetricsCallback(func(oldValue, newValue *protocol.ClubMetrics) {
+			if newValue == nil || oldValue == newValue {
+				return
+			}
+			host.timeline.UpdateLatestClub(newValue)
+		})
+	}
+	return host
 }
+
+func (h *pluginHost) Timeline() *plugin.Timeline { return h.timeline }
 
 func (h *pluginHost) OnBallReady(fn func(oldValue, newValue bool)) {
 	h.sm.RegisterBallReadyCallback(fn)
@@ -28,6 +46,14 @@ func (h *pluginHost) OnBallMetrics(fn func(oldValue, newValue *protocol.BallMetr
 
 func (h *pluginHost) OnClubMetrics(fn func(oldValue, newValue *protocol.ClubMetrics)) {
 	h.sm.RegisterLastClubMetricsCallback(fn)
+}
+
+func (h *pluginHost) OnShot(fn func(shot plugin.Shot)) plugin.Subscription {
+	return h.timeline.Subscribe(func(event plugin.ShotEvent) {
+		if event.Kind == plugin.ShotCreated {
+			fn(event.Shot)
+		}
+	})
 }
 
 func (h *pluginHost) ActivateBallDetection() error {
@@ -75,4 +101,9 @@ func (h *pluginHost) ReportStatus(name string, status plugin.Status, err error) 
 		errStr = err.Error()
 	}
 	h.sm.SetIntegrationStatus(name, IntegrationStatus{Status: statusString(status), Error: errStr})
+}
+
+func (h *pluginHost) PublishResult(result plugin.Result) error {
+	_, err := h.timeline.PublishResult(result)
+	return err
 }

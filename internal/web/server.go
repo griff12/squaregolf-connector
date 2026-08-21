@@ -24,6 +24,7 @@ type Server struct {
 	bluetoothManager *core.BluetoothManager
 	launchMonitor    *core.LaunchMonitor
 	plugins          *plugin.Registry
+	shotSubscription plugin.Subscription
 	upgrader         websocket.Upgrader
 	clients          map[*websocket.Conn]*wsClient
 	clientsMu        sync.Mutex
@@ -104,6 +105,7 @@ func NewServer(stateManager *core.StateManager, bluetoothManager *core.Bluetooth
 	}
 
 	server.setupCallbacks()
+	server.shotSubscription = plugins.Timeline().Subscribe(server.broadcastShotEvent)
 	go server.handleMessages()
 
 	return server
@@ -352,6 +354,11 @@ func (s *Server) Start(port int) error {
 	api.HandleFunc("/integrations/{name}/connect", s.handleIntegrationConnect).Methods("POST")
 	api.HandleFunc("/integrations/{name}/disconnect", s.handleIntegrationDisconnect).Methods("POST")
 	api.HandleFunc("/integrations/{name}/config", s.handleIntegrationConfig).Methods("GET", "POST")
+	api.HandleFunc("/integrations/{name}/actions/{action}", s.handleIntegrationAction).Methods("POST")
+
+	// Canonical shots and plugin-contributed results.
+	api.HandleFunc("/shots", s.handleShots).Methods("GET")
+	api.HandleFunc("/shots/{id}", s.handleShot).Methods("GET")
 
 	// Settings endpoints
 	api.HandleFunc("/settings", s.handleSettings).Methods("GET", "POST")
@@ -389,6 +396,9 @@ func (s *Server) Start(port int) error {
 }
 
 func (s *Server) Stop(ctx context.Context) error {
+	if s.shotSubscription != nil {
+		s.shotSubscription.Close()
+	}
 	s.httpServerMu.Lock()
 	httpServer := s.httpServer
 	s.httpServerMu.Unlock()
@@ -467,6 +477,7 @@ func (s *Server) sendInitialStatus(client *wsClient) {
 	}
 
 	send("deviceStatus", s.getDeviceStatus())
+	send("shotHistory", s.plugins.Timeline().Shots(20))
 }
 
 func (s *Server) handleDeviceStatus(w http.ResponseWriter, r *http.Request) {

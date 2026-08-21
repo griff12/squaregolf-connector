@@ -19,6 +19,7 @@ type fakeHost struct {
 func (h *fakeHost) OnBallReady(func(bool, bool))                                     {}
 func (h *fakeHost) OnBallMetrics(func(*protocol.BallMetrics, *protocol.BallMetrics)) {}
 func (h *fakeHost) OnClubMetrics(func(*protocol.ClubMetrics, *protocol.ClubMetrics)) {}
+func (h *fakeHost) OnShot(func(plugin.Shot)) plugin.Subscription                     { return nil }
 func (h *fakeHost) ActivateBallDetection() error                                     { return nil }
 func (h *fakeHost) SetClub(*protocol.ClubType)                                       {}
 func (h *fakeHost) SetClubName(string)                                               {}
@@ -28,6 +29,7 @@ func (h *fakeHost) ReportStatus(_ string, status plugin.Status, err error) {
 	h.lastStatus = status
 	h.lastErr = err
 }
+func (h *fakeHost) PublishResult(plugin.Result) error { return nil }
 
 // fakeVendor records calls so we can prove the Manager drives any Vendor without
 // knowing its concrete type — the camera open/closed seam.

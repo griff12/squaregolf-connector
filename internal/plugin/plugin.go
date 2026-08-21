@@ -35,6 +35,9 @@ type Host interface {
 	OnBallMetrics(fn func(oldValue, newValue *protocol.BallMetrics))
 	// OnClubMetrics subscribes to club-metrics changes (old, new).
 	OnClubMetrics(fn func(oldValue, newValue *protocol.ClubMetrics))
+	// OnShot subscribes to newly-created canonical shots. Plugin work should be
+	// detached from the callback when it may block.
+	OnShot(fn func(shot Shot)) Subscription
 
 	// ActivateBallDetection asks the launch monitor to arm ball detection.
 	ActivateBallDetection() error
@@ -49,6 +52,8 @@ type Host interface {
 
 	// ReportStatus surfaces a plugin's connection/health state into app state.
 	ReportStatus(plugin string, status Status, err error)
+	// PublishResult attaches a plugin contribution to its correlated shot.
+	PublishResult(result Result) error
 }
 
 // Plugin is an external capability registered against the engine. The engine
@@ -66,4 +71,23 @@ type Plugin interface {
 type Connectable interface {
 	BeginConnect(host string, port int)
 	EndConnect()
+}
+
+// ConnectionLifecycle is the transport-neutral connection capability for new
+// plugins. Implementations own their endpoint/device configuration.
+type ConnectionLifecycle interface {
+	Connect(ctx context.Context) error
+	Disconnect(ctx context.Context) error
+}
+
+// Actionable exposes device-specific operations such as scan or calibration
+// without teaching the web layer about a concrete integration.
+type Actionable interface {
+	Invoke(ctx context.Context, action string, input map[string]any) (map[string]any, error)
+}
+
+// ConfigValidator lets a plugin reject invalid settings before they are
+// applied or persisted.
+type ConfigValidator interface {
+	ValidateConfig(values map[string]any) error
 }

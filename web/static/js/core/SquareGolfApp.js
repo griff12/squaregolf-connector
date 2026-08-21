@@ -7,6 +7,7 @@ import { AlignmentManager } from '../features/AlignmentManager.js';
 import { SettingsManager } from '../features/SettingsManager.js';
 import { IntegrationsManager } from '../features/IntegrationsManager.js';
 import { ShotMonitor } from '../features/ShotMonitor.js';
+import { ShotTimeline } from '../features/ShotTimeline.js';
 import { ToastManager } from '../ui/ToastManager.js';
 import { ScreenManager } from '../ui/ScreenManager.js';
 
@@ -29,6 +30,7 @@ export class SquareGolfApp {
         this.settingsManager = new SettingsManager(this.api, this.eventBus);
         this.integrationsManager = new IntegrationsManager(this.api, this.toast);
         this.shotMonitor = new ShotMonitor(this.api, this.eventBus);
+        this.shotTimeline = new ShotTimeline(this.api);
 
         // Local state
         this.currentHandedness = 'right';
@@ -61,6 +63,7 @@ export class SquareGolfApp {
         this.ws.connect();
         this.settingsManager.load();
         this.integrationsManager.init();
+        this.shotTimeline.init();
     }
 
     setupEventBusListeners() {
@@ -202,6 +205,12 @@ export class SquareGolfApp {
                 break;
             case 'integrationStatus':
                 this.integrationsManager.updateStatus(message.data);
+                break;
+            case 'shotHistory':
+                this.shotTimeline.setHistory(message.data);
+                break;
+            case 'shotEvent':
+                this.shotTimeline.applyEvent(message.data);
                 break;
             default:
                 console.log('Unknown WebSocket message type:', message.type);

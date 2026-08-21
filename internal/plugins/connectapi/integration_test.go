@@ -21,12 +21,14 @@ type fakeHost struct {
 func (h *fakeHost) OnBallReady(func(bool, bool))                                     {}
 func (h *fakeHost) OnBallMetrics(func(*protocol.BallMetrics, *protocol.BallMetrics)) {}
 func (h *fakeHost) OnClubMetrics(func(*protocol.ClubMetrics, *protocol.ClubMetrics)) {}
+func (h *fakeHost) OnShot(func(plugin.Shot)) plugin.Subscription                     { return nil }
 func (h *fakeHost) ActivateBallDetection() error                                     { h.activateCount++; return nil }
 func (h *fakeHost) SetClub(c *protocol.ClubType)                                     { h.lastClub = c }
 func (h *fakeHost) SetClubName(n string)                                             { h.lastClubName = n }
 func (h *fakeHost) SetHandedness(hd protocol.HandednessType)                         { h.lastHand = hd; h.handSet = true }
 func (h *fakeHost) ClubName() string                                                 { return "" }
 func (h *fakeHost) ReportStatus(string, plugin.Status, error)                        {}
+func (h *fakeHost) PublishResult(plugin.Result) error                                { return nil }
 
 func started(t *testing.T, cfg Config) (*Integration, *fakeHost) {
 	t.Helper()
