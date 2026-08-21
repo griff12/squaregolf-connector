@@ -50,6 +50,20 @@ func seedIntegrationConfig(registry *plugin.Registry, name string, fallback map[
 	cs.Configure(cfg)
 }
 
+func legacyGSProConfig(config AppConfig, settings appcfg.Settings) map[string]any {
+	host := settings.GSProIP
+	port := settings.GSProPort
+	if config.EnableGSPro {
+		// Explicit CLI connection settings take precedence over saved legacy
+		// values, matching the pre-plugin behavior.
+		host = config.GSProIP
+		port = config.GSProPort
+	}
+	return map[string]any{
+		"host": host, "port": port, "autoConnect": settings.GSProAutoConnect,
+	}
+}
+
 // Initialize the backend services (Bluetooth, state manager, etc.)
 func initializeBackend(config AppConfig) (*core.StateManager, *core.BluetoothManager, *core.LaunchMonitor) {
 	// Initialize logging
@@ -252,9 +266,7 @@ func startWebServer(config AppConfig, stateManager *core.StateManager, bluetooth
 
 	// Seed each plugin's config from persisted generic config, falling back to
 	// the legacy typed settings so existing installs keep their values.
-	seedIntegrationConfig(registry, "gspro", map[string]any{
-		"host": config.GSProIP, "port": config.GSProPort, "autoConnect": settings.GSProAutoConnect,
-	})
+	seedIntegrationConfig(registry, "gspro", legacyGSProConfig(config, settings))
 	seedIntegrationConfig(registry, "camera", map[string]any{
 		"url": settings.CameraURL, "enabled": settings.CameraEnabled,
 	})

@@ -9,5 +9,6 @@ dist/
 *.app/
 squaregolf-connector
 squaregolf-connector.exe
+browser-mock-server
 *.syso
 tmp/
