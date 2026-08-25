@@ -92,6 +92,25 @@ func (b *Base) Connect(host string, port int) {
 		tcpConn.SetKeepAlive(true)
 		tcpConn.SetKeepAlivePeriod(30 * time.Second)
 		log.Printf("[%s] TCP keepalive enabled", b.Protocol.Name())
+
+		// Close this socket with RST rather than a graceful FIN, and set that
+		// now rather than at Disconnect so it holds however the socket dies -
+		// including the implicit close when the OS reaps the process.
+		//
+		// GSPro Connect only calls AcceptTcpClient() when its current client
+		// looks disconnected, and its read loop never checks Read()'s return
+		// value. A FIN gives it endless zero-length reads on a socket it still
+		// believes is live: it spins, never re-accepts, and every later
+		// connection is refused until it is restarted by hand. An RST instead
+		// surfaces as an exception in its reader and takes the teardown path
+		// that does re-accept.
+		//
+		// Setting it at Disconnect alone would only cover a graceful shutdown,
+		// which is the case that matters least on a phone - an Android app is
+		// far more likely to be killed in the background than to exit cleanly.
+		if err := tcpConn.SetLinger(0); err != nil {
+			log.Printf("[%s] Could not set SO_LINGER; close will send FIN: %v", b.Protocol.Name(), err)
+		}
 	}
 
 	b.Socket = conn
@@ -127,24 +146,8 @@ func (b *Base) Disconnect() {
 
 	_ = b.Socket.SetDeadline(time.Now().Add(2 * time.Second))
 
-	// Close with RST rather than a graceful FIN.
-	//
-	// GSPro Connect's accept loop only calls AcceptTcpClient() when its current
-	// client looks disconnected, and its read loop never checks Read()'s return
-	// value. A graceful FIN therefore gives it an endless stream of zero-length
-	// reads on a socket it still believes is live: it spins, never re-accepts, and
-	// every later connection attempt is refused until the process is restarted.
-	// Observed directly - two sockets left in CLOSE_WAIT and a dead listener.
-	//
-	// SetLinger(0) sends RST instead, which surfaces as an exception in its reader
-	// and takes the teardown path that does re-accept. Nothing is lost: we only
-	// reach here after deciding to drop the connection, and any unsent data would
-	// have been discarded anyway.
-	if tcp, ok := b.Socket.(*net.TCPConn); ok {
-		if err := tcp.SetLinger(0); err != nil {
-			log.Printf("[%s] Could not set SO_LINGER, closing with FIN: %v", b.Protocol.Name(), err)
-		}
-	}
+	// SO_LINGER 0 was set in Connect, so this Close sends RST rather than FIN and
+	// does not wedge GSPro Connect's accept loop. See the comment there.
 
 	if b.Socket != nil {
 		err := b.Socket.Close()
