@@ -30,7 +30,14 @@ func (g *Integration) convertToShotFormat(ballMetrics protocol.BallMetrics, incr
 			HLA:       ballMetrics.HorizontalAngle,
 			VLA:       ballMetrics.VerticalAngle,
 		},
-		ClubData: &ClubData{}, // Empty club data
+		// Deliberately nil, not &ClubData{}: ShotData tags this field omitempty,
+		// which only skips a NIL pointer. An empty struct still marshals, so every
+		// ball message carried ten zeroed club fields alongside
+		// ContainsClubData:false - contradicting itself and wasting the payload.
+		//
+		// Both club-data paths in listeners.go assign ClubData themselves before
+		// sending, so nothing downstream depends on this being non-nil.
+		ClubData: nil,
 	}
 }
 
