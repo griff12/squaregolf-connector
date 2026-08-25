@@ -32,6 +32,10 @@ type Base struct {
 	ReconnectAttempts  int
 	LastConnectAttempt time.Time
 	backoff            *resilience.Backoff
+
+	// sendMutex serialises SendMessage and, with lastSendAt, enforces minSendGap.
+	sendMutex  sync.Mutex
+	lastSendAt time.Time
 }
 
 func NewBase(protocol Protocol, host string, port int) *Base {
@@ -123,6 +127,25 @@ func (b *Base) Disconnect() {
 
 	_ = b.Socket.SetDeadline(time.Now().Add(2 * time.Second))
 
+	// Close with RST rather than a graceful FIN.
+	//
+	// GSPro Connect's accept loop only calls AcceptTcpClient() when its current
+	// client looks disconnected, and its read loop never checks Read()'s return
+	// value. A graceful FIN therefore gives it an endless stream of zero-length
+	// reads on a socket it still believes is live: it spins, never re-accepts, and
+	// every later connection attempt is refused until the process is restarted.
+	// Observed directly - two sockets left in CLOSE_WAIT and a dead listener.
+	//
+	// SetLinger(0) sends RST instead, which surfaces as an exception in its reader
+	// and takes the teardown path that does re-accept. Nothing is lost: we only
+	// reach here after deciding to drop the connection, and any unsent data would
+	// have been discarded anyway.
+	if tcp, ok := b.Socket.(*net.TCPConn); ok {
+		if err := tcp.SetLinger(0); err != nil {
+			log.Printf("[%s] Could not set SO_LINGER, closing with FIN: %v", b.Protocol.Name(), err)
+		}
+	}
+
 	if b.Socket != nil {
 		err := b.Socket.Close()
 		if err != nil {
@@ -200,13 +223,44 @@ func (b *Base) ResetReconnectionState() {
 	log.Printf("[%s] Reconnection state reset", b.Protocol.Name())
 }
 
+// minSendGap is the minimum wall-clock spacing between two outbound messages.
+//
+// This is rate limiting, not sequencing. GSPro Connect's reader performs a single
+// Read() into an SO_RCVBUF-sized buffer, ASCII-decodes the whole buffer and parses
+// it with CheckAdditionalContent enabled. Two messages that arrive before it drains
+// that buffer therefore reach the parser concatenated, and it answers
+// {"Code":501,"Message":"Bad format"} - dropping both.
+//
+// This is easy to hit: the ball-data and club-data writes for a single shot are
+// issued about a millisecond apart and coalesce reliably on loopback. TCP_NODELAY
+// does not help; even as separate segments both messages sit in the receive buffer
+// before the peer's next Read().
+//
+// Verified against GSPro Connect v3.2.50: byte-identical payloads returned 501 when
+// written together and 200 when written apart.
+const minSendGap = 250 * time.Millisecond
+
 func (b *Base) SendMessage(data []byte) error {
+	// Serialise writers as well as pace them: concurrent callers previously raced
+	// on Socket.Write with no lock at all.
+	b.sendMutex.Lock()
+	defer b.sendMutex.Unlock()
+
 	if !b.Connected || b.Socket == nil {
 		return fmt.Errorf("not connected to %s", b.Protocol.Name())
 	}
 
+	if wait := minSendGap - time.Since(b.lastSendAt); wait > 0 {
+		time.Sleep(wait)
+		// Connected may have changed while we waited.
+		if !b.Connected || b.Socket == nil {
+			return fmt.Errorf("not connected to %s", b.Protocol.Name())
+		}
+	}
+
 	message := append(data, '\n')
 	_, err := b.Socket.Write(message)
+	b.lastSendAt = time.Now()
 	if err != nil {
 		b.Disconnect()
 		return fmt.Errorf("error sending data: %w", err)
