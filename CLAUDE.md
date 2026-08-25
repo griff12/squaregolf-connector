@@ -120,6 +120,31 @@ These come from IL analysis of GSPconnect and cost real time to discover. Full d
 - The transport adapter is tested through a fake Kotlin-side implementation of the callback
   interface, not through an emulator.
 - Every bug gets a failing test before the fix.
+- The e2e pipeline test is behind `-tags e2e` because it takes ~34s (the simulator free-runs a
+  shot every ~11.5s and cannot be hurried):
+  `go test -tags e2e -run TestPipelineSimulatorToGSPro ./internal/transport/android/`
+
+### Known-failing baseline - do not "fix" these
+
+`-race` requires cgo, which requires a C toolchain on PATH. WinLibs MinGW-w64 (UCRT) is
+installed at `%LOCALAPPDATA%\Microsoft\WinGet\Packages\BrechtSanders.WinLibs.POSIX.UCRT_*`.
+Without it `go build ./...` also fails on `webview_go` in the root package and `internal/ui`.
+
+With cgo available, `go test -race ./...` is clean **except**:
+
+```
+--- FAIL: TestSeedIntegrationConfigUsesLegacySettingsWhenGenericConfigIsAbsent
+    main_test.go:45: seeded config = map[autoConnect:true host:10.0.0.5 port:921]
+```
+
+This is **upstream's, not ours** - verified by running the same test on a pristine `cb49e8d`
+worktree, where it fails identically. It reads the developer's real on-disk config rather
+than a fixture, so it passes or fails depending on the machine. Worth an upstream issue.
+
+Everything else, including `internal/transport/android`, is race-clean.
+
+**Beware:** `cc` on this machine resolves to `~/.local/bin/cc.ps1`, the Claude Code project
+launcher. Go defaults to `CC=gcc` on Windows so cgo is unaffected, but never set `CC=cc`.
 
 ## Workflow
 
