@@ -52,14 +52,18 @@ android/arm64. Proven: `go list -deps ./internal/core` pulls `tinygo.org/x/bluet
 2. New `internal/core/tinygo_bluetooth_client_android.go` (`//go:build android`) — stubs for
    the symbols `bluetooth_manager.go` references: `NewTinyGoBluetoothClient`,
    `ConnectionPhase`, `PhaseScanning`, `PhaseConnecting`, `globalAdapter`, `releaseAdapter`.
-3. `internal/core/bluetooth_manager.go` — two edits:
-   - `:59` widen the `*TinyGoBluetoothClient` type assertion to a capability interface
-     (`SetPhaseChangeCallback` / `SetConnectionLostCallback`) so a non-TinyGo client still
-     gets connection-lost detection. **Send this upstream as a PR** — it is a real bug for
-     them too. Link the PR here once open.
-   - `:104` tag-split the hardcoded `NewTinyGoBluetoothClient()` fallback.
+3. `internal/core/bluetooth_manager.go` — **one** edit: widen the
+   `*TinyGoBluetoothClient` type assertion in `setupPhaseCallback` to a capability interface
+   (`SetPhaseChangeCallback` / `SetConnectionLostCallback`) so a non-TinyGo client still gets
+   connection-lost detection. **Send this upstream as a PR** — it is a real bug for them too.
+   Link the PR here once open.
 
-Keep these as separate, clearly-labelled commits so rebases stay tractable.
+The hardcoded `NewTinyGoBluetoothClient()` fallback at `:104` needs **no** change: the android
+stub returns an error, `:105` sees `err != nil` and returns at `:118`, so the nil client never
+reaches the field. The fallback becomes an honest error path for free.
+
+Landed as `ac0b7df` (the widening, upstream-bound) and `08285f3` (the tag split), kept separate
+so the PR can be cherry-picked and rebases stay tractable.
 
 ## Architecture boundaries
 
