@@ -56,8 +56,17 @@ func (bm *BluetoothManager) SetClient(client BluetoothClient) {
 
 // setupPhaseCallback sets up the phase change and connection-lost callbacks on
 // the Bluetooth client.
+// phaseAwareClient is the capability subset of a BluetoothClient that can
+// report connection-phase transitions and unsolicited disconnects. Asserting
+// against this rather than a concrete type lets any client -- including one
+// installed with SetClient -- receive the callbacks.
+type phaseAwareClient interface {
+	SetPhaseChangeCallback(callback func(ConnectionPhase))
+	SetConnectionLostCallback(callback func())
+}
+
 func (bm *BluetoothManager) setupPhaseCallback() {
-	if tinyGoClient, ok := bm.bluetoothClient.(*TinyGoBluetoothClient); ok {
+	if tinyGoClient, ok := bm.bluetoothClient.(phaseAwareClient); ok {
 		tinyGoClient.SetPhaseChangeCallback(func(phase ConnectionPhase) {
 			switch phase {
 			case PhaseScanning:
