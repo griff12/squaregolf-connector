@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Deliberately a platform theme. Theme.Material3.* lives in
+         com.google.android.material (the Views library), which a pure-Compose app does
+         not depend on; referencing it fails with
+         "AAPT: error: resource style/Theme.Material3.DayNight.NoActionBar not found". -->
+    <style name="Theme.SquareGolf" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>

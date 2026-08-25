@@ -12,3 +12,6 @@ squaregolf-connector.exe
 browser-mock-server
 *.syso
 tmp/
+local.properties
+.gradle/
+app/build/

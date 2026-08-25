@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Required even though the only destination is loopback: Android gates
+         socket(AF_INET, ...) creation on membership of AID_INET (gid 3003), which this
+         permission grants. Without it the dial fails with
+         "socket: permission denied" before any address is considered.
+         core.aar declares no permissions of its own. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Phase 1 needs NO Bluetooth permissions: the BleBridge passed to
+         Mobile.newConnector is null, which selects simulator mode. -->
+
+    <application
+        android:allowBackup="false"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SquareGolf">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.SquareGolf"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|density|keyboardHidden|keyboard|navigation|uiMode|locale|layoutDirection|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

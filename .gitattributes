@@ -1,0 +1,18 @@
+# core.autocrlf=true on this machine checks Go sources out CRLF, which makes
+# `gofmt -l .` (CLAUDE.md's pre-commit gate) report 48 files whose only defect is a
+# carriage return. Pinning eol=lf fixes the gate without touching any blob: git already
+# stores LF, so this changes the working tree only. After adding this file, run
+#   git add --renormalize .
+# once; `git status` will show nothing and `gofmt -l .` will output nothing.
+*.go text eol=lf
+
+# The wrapper scripts, as `gradle wrapper` emits them.
+gradlew      text eol=lf
+gradlew.bat  text eol=crlf
+
+# Never touch these.
+*.aar  binary
+*.jar  binary
+*.so   binary
+*.apk  binary
+*.png  binary
