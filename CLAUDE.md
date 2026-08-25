@@ -55,8 +55,8 @@ android/arm64. Proven: `go list -deps ./internal/core` pulls `tinygo.org/x/bluet
 3. `internal/core/bluetooth_manager.go` — **one** edit: widen the
    `*TinyGoBluetoothClient` type assertion in `setupPhaseCallback` to a capability interface
    (`SetPhaseChangeCallback` / `SetConnectionLostCallback`) so a non-TinyGo client still gets
-   connection-lost detection. **Send this upstream as a PR** — it is a real bug for them too.
-   Link the PR here once open.
+   connection-lost detection. **Sent upstream as PR #14** —
+   https://github.com/brentyates/squaregolf-connector/pull/14
 
 The hardcoded `NewTinyGoBluetoothClient()` fallback at `:104` needs **no** change: the android
 stub returns an error, `:105` sees `err != nil` and returns at `:118`, so the nil client never
@@ -104,6 +104,13 @@ These come from IL analysis of GSPconnect and cost real time to discover. Full d
   the connection into legacy mode permanently and all responses go silent.
 - Code 200 acks coalesce on a 200 ms timer. Cap at ~5 shots/sec. Codes 202/203 are undocumented
   and must not be treated as fatal.
+
+`Base.SendMessage` enforces a 250 ms floor between writes, and `Connect` sets `SO_LINGER 0` so
+a close sends RST rather than FIN. Those two are why shots land at all, and why killing the app
+no longer wedges GSPro Connect's listener. **Sent upstream as PR #15** —
+https://github.com/brentyates/squaregolf-connector/pull/15
+
+Two carried patches, then (#14 and #15). Drop ours on whichever rebase takes them.
 
 ## Don't
 
