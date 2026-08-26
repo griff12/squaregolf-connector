@@ -1,7 +1,21 @@
 # SquareGolf Connector — Android Port
 
-Feed Square Golf Omni ball data to GSPro running under Winlator on the same phone, over
-the GSPro Open Connect API on **TCP 18921** (see "Transport", below — it is not 921).
+Feed Square Golf Omni ball data from an Android phone to **GSPro running on a Windows PC on
+the same LAN**, over the GSPro Open Connect API on **TCP 921**.
+
+> **Architecture changed 2026-08-26.** The original plan ran GSPro under Winlator on the
+> phone itself and talked to it over loopback. That transport was proven to work
+> (`PHASE0-FINDINGS.md`) but the plan was abandoned for a simpler reason: **GSPro is not
+> playable under Winlator on this hardware.** Measured on a Galaxy Z Fold 8 (Adreno 840):
+> ~20 fps on the practice range at GSPro's native 1280×960, GPU pinned at 99% with the CPU
+> idle. Reducing to 640×480 gave ~60 fps, confirming it is fill-rate bound — but a real
+> course is heavier than the range, and no resolution that runs acceptably also looks
+> acceptable. Winlator offers no FSR for the D3D11/DXVK path (its only FSR shaders belong to
+> cnc-ddraw, for DirectDraw games).
+>
+> Sending to a PC is better anyway: GSPro runs properly, and **Windows has no
+> privileged-port restriction**, so GSPro Connect binds 921 normally and the whole
+> patched-port workaround disappears.
 
 ## The core decision: port the transport, don't rewrite the app
 
@@ -39,15 +53,28 @@ entire port surface.**
 │  transport/android/   NEW - the whole port  │
 │  mobile/              NEW - FFI shim        │
 └───────────────┬─────────────────────────────┘
-                │ TCP client
+                │ TCP client, over the LAN
+└───────────────┬─────────────────────────────┘
+                │
 ┌───────────────▼─────────────────────────────┐
-│ 127.0.0.1:18921  →  GSPro inside Winlator   │
+│ Windows PC on the same network ("Terra")    │
+│   GSPro Connect, Open Connect API :921      │
+│   GSPro itself                              │
 └─────────────────────────────────────────────┘
 ```
 
 Two new packages. Everything else is upstream and stays rebaseable.
 
-## Transport — RESOLVED, see PHASE0-FINDINGS.md
+**Why the LAN hop needs no extra work:** `OpenSDKv1` constructs its listener as
+`new TcpListener(int)` — the `IPAddress.Any` overload — so GSPro Connect already listens on
+every interface, not just loopback. A phone on the same network reaches it with no
+port-forwarding, no config, and no patch. (Established by IL analysis; see
+`PHASE0-FINDINGS.md`. Note the flip side: that port is open and unauthenticated to anything
+on the LAN.)
+
+## Transport — HISTORICAL (Winlator plan, abandoned)
+
+*Kept because the protocol findings still apply. The port patch does not.*
 
 The load-bearing assumption held: **Winlator does not isolate the network namespace.** Wine's
 `127.0.0.1` *is* Android's `127.0.0.1`. Verified by observation — Winlator's sockets appear in
@@ -89,15 +116,17 @@ shot from an Android process was acknowledged by GSPro Connect with Code 200. Se
 
 **Phase 1 — Go core on Android, no BLE.** Fork, build for `android/arm64`, bind to an AAR,
 drive it with `SimulatorBluetoothClient`. Minimal Kotlin UI: one button that fires a synthetic
-shot. Gate: a synthetic shot from the Kotlin app appears in GSPro inside Winlator. **This
+shot. Gate: a synthetic shot from the Kotlin app appears in GSPro on the PC. **This
 proves the whole pipeline with no hardware involved.**
 
 **Phase 2 — Real BLE.** Implement `BluetoothClient` in Kotlin against Android BLE. Scan,
 connect, subscribe to notifications, write commands. Gate: a real Omni shot reaches GSPro.
 
 **Phase 3 — Make it survive a round.** Foreground service so BLE holds when the screen is off
-and Winlator is foregrounded. Link-loss detection and auto-reconnect on both BLE and TCP legs.
-Battery and status surfaced in the UI.
+or the app is backgrounded. Link-loss detection and auto-reconnect on both BLE and TCP legs.
+Battery and status surfaced in the UI. The TCP leg matters more over a LAN than it did over
+loopback: wifi drops, roaming and sleep all produce the ungraceful disconnects that wedge
+GSPro Connect.
 
 **Phase 4 — Polish.** Club selection, handedness, alignment, settings persistence.
 
@@ -109,7 +138,7 @@ work" from "does BLE work," so a failure has one cause instead of two.
 - **Permissions.** Android 12+ needs `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` at runtime.
   Declare `neverForLocation` on the scan permission or you inherit a location prompt you don't
   need.
-- **Foreground service.** Required to keep a BLE connection alive while Winlator is in front.
+- **Foreground service.** Required to keep a BLE connection alive when the app is backgrounded or the screen is off.
   Needs `connectedDevice` service type and its manifest permission.
 - **Battery optimization.** Samsung is aggressive. The app needs an exemption or it gets killed
   mid-round.
@@ -126,4 +155,5 @@ work" from "does BLE work," so a failure has one cause instead of two.
 - Upstream's own `ARCHITECTURE_REVIEW.md` documents the intended `DeviceTransport` seam — read
   it before touching the transport layer
 - GSPro Open Connect: connector is the client, GSPro is the server. Protocol per
-  `gsprogolf.com/GSProConnectV1.html`; **port 18921 on this device**, not the documented 921.
+  `gsprogolf.com/GSProConnectV1.html`; **port 921** on the PC. The 18921 patch belonged to the
+  abandoned Winlator-on-phone plan and is not used in the LAN architecture.

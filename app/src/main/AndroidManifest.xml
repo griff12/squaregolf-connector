@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Required even though the only destination is loopback: Android gates
          socket(AF_INET, ...) creation on membership of AID_INET (gid 3003), which this
@@ -8,8 +9,28 @@
          core.aar declares no permissions of its own. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Phase 1 needs NO Bluetooth permissions: the BleBridge passed to
-         Mobile.newConnector is null, which selects simulator mode. -->
+    <!-- Phase 2: real BLE. minSdk is 26, so BOTH permission models must be declared.
+
+         Pre-31 Android gates BLE SCANNING behind a location permission - not because
+         we want location, but because scan results can be used to infer it. Capped at
+         30 so a modern device never sees a location prompt. -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <!-- 31+. neverForLocation asserts we do not derive physical location from scan
+         results, which we do not: the only things read out of a ScanRecord are the
+         device name and its manufacturer-data blob. That flag is what stops
+         BLUETOOTH_SCAN from implying a location permission on Android 12+. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application
         android:allowBackup="false"

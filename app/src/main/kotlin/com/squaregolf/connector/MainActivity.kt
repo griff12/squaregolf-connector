@@ -31,6 +31,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Switch
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 /**
  * One screen, one gate.
@@ -43,6 +52,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Hand the process-scoped Native object an application context so it can build
+        // the BleBridge without the ViewModel needing one. Application context, not
+        // this: the bridge outlives every Activity on a foldable.
+        Native.attachContext(this)
         enableEdgeToEdge()
         setContent {
             MaterialTheme {
@@ -57,6 +70,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun GateScreen(vm: ConnectorViewModel = viewModel()) {
     val s by vm.state.collectAsState()
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val ok = granted.values.all { it }
+        vm.setNeedsBlePermission(!ok)
+        // Only flip to real BLE once the radio is actually usable; otherwise the
+        // first scan would fail with a SecurityException instead of a clear message.
+        if (ok) vm.setUseRealBle(true)
+    }
 
     Column(
         modifier = Modifier
@@ -106,12 +130,49 @@ private fun GateScreen(vm: ConnectorViewModel = viewModel()) {
             }
         }
 
+        // Real BLE vs simulator. Disabled once the engine is running: the Go side
+        // installs its client exactly once, so the choice is fixed for the process.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Switch(
+                checked = s.useRealBle,
+                enabled = !s.busy && Native.current() == null,
+                onCheckedChange = { want ->
+                    if (want && !hasBlePermissions(context)) {
+                        vm.setNeedsBlePermission(true)
+                        permissionLauncher.launch(blePermissions())
+                    } else {
+                        vm.setUseRealBle(want)
+                    }
+                },
+            )
+            Text(
+                if (s.useRealBle) "real Omni over BLE" else "built-in simulator",
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+
+        if (s.needsBlePermission) {
+            Text(
+                "Bluetooth permission is required to scan for the Omni.",
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = vm::fire, enabled = !s.busy) {
-                Text(if (s.busy) "Working…" else "Connect & fire synthetic shot")
+                Text(
+                    when {
+                        s.busy -> "Working…"
+                        s.useRealBle -> "Connect to Omni & arm"
+                        else -> "Connect & fire synthetic shot"
+                    }
+                )
             }
             OutlinedButton(onClick = vm::disarm, enabled = s.armed) { Text("Disarm") }
         }
@@ -154,3 +215,23 @@ private fun GateScreen(vm: ConnectorViewModel = viewModel()) {
     }
 }
 
+
+/**
+ * The runtime permissions BLE needs, which differ by API level.
+ *
+ * On 31+ scanning and connecting are their own permissions and, because the manifest
+ * declares neverForLocation, no location permission is implied. Below 31 there is no
+ * BLUETOOTH_SCAN at all and the platform gates scanning behind fine location instead --
+ * BLUETOOTH/BLUETOOTH_ADMIN are install-time there and are not requested at runtime.
+ */
+private fun blePermissions(): Array<String> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+
+private fun hasBlePermissions(context: Context): Boolean =
+    blePermissions().all {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }

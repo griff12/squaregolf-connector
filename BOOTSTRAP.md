@@ -16,14 +16,15 @@ running under Winlator and got back:
 
 The loopback assumption held — Winlator does not isolate the network namespace. The blocker
 was that **921 is a privileged port** and no Android app uid can bind it. GSPconnect's
-listener was patched to **18921**.
+listener was patched to **18921**. That patch is HISTORICAL - the LAN architecture uses a PC,
+where 921 binds normally.
 
 Full detail, rollback, and protocol gotchas: `PHASE0-FINDINGS.md`. **Read it before Session 2.**
 
 If you ever need to re-verify by hand, from Termux:
 
 ```
-nc 127.0.0.1 18921
+nc <PC-LAN-IP> 921
 ```
 
 ...and paste an Open Connect V1 payload. Send a heartbeat first, one JSON object per write,
@@ -66,7 +67,7 @@ interface or several — everything downstream depends on getting it right.
 **Gate:** synthetic shot from the Kotlin app appears in GSPro inside Winlator. The pipeline is
 proven with no hardware in the loop.
 
-Point the GSPro output at `127.0.0.1:18921`, and follow the connector notes in
+Point the GSPro output at the PC's LAN address on port 921, and follow the connector notes in
 `PHASE0-FINDINGS.md` — especially: heartbeat first, one JSON object per write, never
 half-close the connection.
 

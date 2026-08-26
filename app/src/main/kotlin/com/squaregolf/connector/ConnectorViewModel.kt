@@ -31,6 +31,10 @@ data class UiState(
     val endpointInUse: String = "",
     val dropped: Long = 0,
     val lines: List<String> = emptyList(),
+    /** false drives the built-in simulator (Phase 1); true drives a real Omni over BLE. */
+    val useRealBle: Boolean = false,
+    /** Set when real BLE is selected but the runtime permissions have not been granted. */
+    val needsBlePermission: Boolean = false,
 )
 
 /**
@@ -134,6 +138,14 @@ class ConnectorViewModel : ViewModel() {
 
     fun setPort(v: String) = _state.update { it.copy(port = v) }
 
+    /**
+     * Only meaningful before the first connect: the Go engine installs its client once,
+     * so flipping this after the engine is running has no effect until the process restarts.
+     */
+    fun setUseRealBle(v: Boolean) = _state.update { it.copy(useRealBle = v) }
+
+    fun setNeedsBlePermission(v: Boolean) = _state.update { it.copy(needsBlePermission = v) }
+
     private var ticker: Job? = null
 
     /**
@@ -169,7 +181,11 @@ class ConnectorViewModel : ViewModel() {
         viewModelScope.launch(crashGuard) {
             try {
                 withContext(Dispatchers.IO) {
-                    val c = Native.ensure(host, port, listener)
+                    // A real bridge drives the radio; null selects the simulator. The
+                    // choice is fixed for the life of the engine, because the Go side
+                    // installs the client once at construction.
+                    val bridge = if (_state.value.useRealBle) Native.bleBridge() else null
+                    val c = Native.ensure(host, port, listener, bridge)
 
                     if (c.launchMonitorStatus() != "connected") {
                         phase("connecting launch monitor")

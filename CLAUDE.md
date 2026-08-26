@@ -1,11 +1,18 @@
 # squaregolf-connector-android
 
 Fork of `brentyates/squaregolf-connector` (Go, MIT) that runs the connector on Android and
-feeds GSPro running under Winlator on the same device via **TCP 18921** (not 921 — see
-`PHASE0-FINDINGS.md`).
+feeds **GSPro on a Windows PC over the LAN**, via the GSPro Open Connect API on **TCP 921**.
+
+**The Winlator-on-phone plan is dead** (2026-08-26). Not because the transport failed — it
+worked — but because GSPro is unplayable under Winlator on this hardware: ~20 fps on the
+practice range, GPU-bound, and no acceptable resolution. GSPro now runs on a PC and the phone
+reaches it over the network. Windows has no privileged-port restriction, so the patched
+18921 port is no longer needed anywhere.
 
 Read `PROJECT-BRIEF.md` for architecture and phasing before planning any change.
-Read `PHASE0-FINDINGS.md` before touching the transport layer.
+Read `PHASE0-FINDINGS.md` before touching the transport layer — the Winlator specifics are
+historical now, but the **GSPro Open Connect protocol findings in it still apply**, because
+they are properties of GSPro Connect itself, not of Winlator.
 
 ## Commands
 
@@ -120,7 +127,8 @@ Two carried patches, then (#14 and #15). Drop ours on whichever rebase takes the
   library is a considered choice, not a default.
 - Don't use `time.Sleep` for sequencing in new code. Upstream does this and it's called out as a
   defect in their own architecture review.
-- Don't hardcode `127.0.0.1:18921`. Host and port are settings with those defaults.
+- Don't hardcode the GSPro endpoint. Host and port are settings; the default port is 921
+  and the host is the PC's LAN address, which the user must be able to change in the UI.
 - Don't write to `internal/state` singletons from the transport layer. Emit through the
   callbacks upstream already defines.
 
